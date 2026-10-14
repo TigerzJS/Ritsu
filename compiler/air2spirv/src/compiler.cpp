@@ -2,6 +2,10 @@
 
 #include "input_sniffer.hpp"
 
+#if A2S_HAVE_LLVM
+#include "bitcode/bitcode_module.hpp"
+#endif
+
 #include <string>
 
 namespace air2spirv {
@@ -25,13 +29,26 @@ a2s_status Compiler::compile(const CompileRequest& request, CompileResult& resul
     }
     diag.note(describe(sniffed));
 
-    // Stages 3-8 (LLVM parse, AIR analysis, lowering, SPIR-V emission, optimization,
-    // validation) do not exist yet. Report honestly instead of producing anything.
+    // Stage 3: LLVM parse + verifier (only in builds with LLVM).
+#if A2S_HAVE_LLVM
+    bitcode::ParsedModule module;
+    if (const a2s_status s = bitcode::parse_bitcode_module(sniffed.bitcode, module, diag);
+        s != A2S_OK) {
+        return s;
+    }
+    diag.note("bitcode: " + bitcode::describe(module.stats()) + " (LLVM " +
+              bitcode::llvm_version() + ")");
+#else
+    diag.note("bitcode not parsed: air2spirv was built without LLVM (AIR2SPIRV_WITH_LLVM=OFF)");
+#endif
+
+    // Stages 4-8 (AIR analysis, lowering, SPIR-V emission, optimization, validation) do not
+    // exist yet. Report honestly instead of producing anything.
     if (request.entry_point.has_value()) {
         diag.note("requested entry point: '" + escape_untrusted(*request.entry_point) + "'");
     }
-    diag.error("AIR to SPIR-V translation is not implemented yet (planned from WP-SC-02, see "
-               "docs/subsystems/shader-compiler.md)");
+    diag.error("AIR to SPIR-V translation is not implemented yet (AIR analysis follows in "
+               "WP-SC-08, see docs/subsystems/shader-compiler.md)");
     return A2S_ERROR_UNIMPLEMENTED;
 }
 

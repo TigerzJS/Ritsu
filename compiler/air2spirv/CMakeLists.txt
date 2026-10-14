@@ -104,17 +104,19 @@ set_property(TARGET air2spirv APPEND PROPERTY INTERFACE_LINK_LIBRARIES
     $<$<LINK_LANGUAGE:C>:stdc++>)
 
 if(AIR2SPIRV_WITH_LLVM)
-    find_package(LLVM CONFIG REQUIRED)
-    message(STATUS "air2spirv: using LLVM ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
-    separate_arguments(_a2s_llvm_definitions NATIVE_COMMAND "${LLVM_DEFINITIONS}")
-    # SYSTEM: LLVM headers must not trip our -Werror warning set.
-    target_include_directories(air2spirv SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
-    target_compile_definitions(air2spirv PRIVATE ${_a2s_llvm_definitions} A2S_HAVE_LLVM=1)
-    llvm_map_components_to_libnames(_a2s_llvm_libs bitreader bitstreamreader core support)
-    target_link_libraries(air2spirv PRIVATE ${_a2s_llvm_libs})
-    # NOTE: LLVM is usually built without RTTI. As long as air2spirv does not derive from LLVM
-    # classes this does not matter; once it does (custom passes), add -fno-rtti for the files
-    # that do, see docs/subsystems/shader-compiler.md (WP-SC-02).
+    include(Air2SpirvLlvmDeps) # pinned LLVM 18.1, target air2spirv_llvm_deps
+    target_sources(air2spirv PRIVATE
+        src/bitcode/bitcode_module.cpp
+        src/bitcode/prescan.cpp
+        src/bitcode/llvm_runtime.cpp)
+    target_link_libraries(air2spirv PRIVATE air2spirv_llvm_deps)
+    target_compile_definitions(air2spirv PRIVATE A2S_HAVE_LLVM=1
+        A2S_LLVM_PACKAGE="${A2S_LLVM_PACKAGE}")
+    # src/bitcode derives from LLVM classes (llvm::DiagnosticHandler); with an LLVM built
+    # without RTTI that needs -fno-rtti on those files, which is not set up (Ubuntu: RTTI on).
+    if(NOT LLVM_ENABLE_RTTI)
+        message(FATAL_ERROR "air2spirv expects an LLVM built with RTTI (LLVM_ENABLE_RTTI=ON)")
+    endif()
 else()
     target_compile_definitions(air2spirv PRIVATE A2S_HAVE_LLVM=0)
 endif()

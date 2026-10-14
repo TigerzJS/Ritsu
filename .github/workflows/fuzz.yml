@@ -8,6 +8,10 @@
 #
 # Rust targets: cargo-fuzz (nightly) via fuzz/tools/smoke.sh -> `make fuzz-smoke-rust`.
 # C++ target:   libFuzzer fuzz_air_sniff (clang) via fuzz/tools/smoke_cpp.sh -> `make fuzz-smoke-cpp`.
+# C++ target:   libFuzzer fuzz_air_bitcode (clang, LLVM 18) via
+#               compiler/air2spirv/fuzz/run_fuzz_air_bitcode.sh: fork mode + triage.py, which fails
+#               only for findings in air2spirv's code; findings inside LLVM 18's bitcode reader are
+#               known (docs/subsystems/shader-compiler.md §11.4, WP-ARCH-04) and kept as artifacts.
 # Keep the Rust target list in sync with fuzz/Cargo.toml ([[bin]] entries); the "targets" job
 # below fails if they drift apart.
 name: fuzz
@@ -161,4 +165,57 @@ jobs:
           name: fuzz-artifacts-fuzz_air_sniff
           path: fuzz/artifacts/fuzz_air_sniff/
           if-no-files-found: warn
+          retention-days: 30
+
+  cpp-llvm:
+    name: cpp (fuzz_air_bitcode, LLVM 18)
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 90 }}
+    env:
+      FUZZ_WORK: ${{ github.workspace }}/.fuzz-work
+      ASAN_SYMBOLIZER_PATH: /usr/lib/llvm-18/bin/llvm-symbolizer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Time per target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a positive integer" >&2; exit 1;; esac
+          echo "FUZZ_TIME=$((MINUTES * 60))" >> "$GITHUB_ENV"
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build cmake clang spirv-tools \
+            spirv-headers libclang-rt-18-dev llvm-18-dev libzstd-dev python3
+      - name: Restore corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: .fuzz-work/fuzz_air_bitcode
+          key: fuzz-corpus-fuzz_air_bitcode-${{ github.run_id }}
+          restore-keys: fuzz-corpus-fuzz_air_bitcode-
+      - name: Fuzz and triage
+        run: sh compiler/air2spirv/fuzz/run_fuzz_air_bitcode.sh
+      - name: Minimise corpus
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p .fuzz-work/min
+          build/air2spirv-fuzz-llvm/fuzz/fuzz_air_bitcode -merge=1 -timeout=10 -rss_limit_mb=2048 \
+            .fuzz-work/min .fuzz-work/fuzz_air_bitcode
+          rm -rf .fuzz-work/fuzz_air_bitcode && mv .fuzz-work/min .fuzz-work/fuzz_air_bitcode
+      - name: Save corpus
+        if: github.event_name != 'pull_request' && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: .fuzz-work/fuzz_air_bitcode
+          key: fuzz-corpus-fuzz_air_bitcode-${{ github.run_id }}
+      # Always: findings inside LLVM are expected until WP-ARCH-04 and are input for WP-SC-07.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-fuzz_air_bitcode
+          path: fuzz/artifacts/fuzz_air_bitcode/
+          if-no-files-found: ignore
           retention-days: 30

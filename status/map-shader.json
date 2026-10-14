@@ -32,14 +32,14 @@
     {
      "id": "Bitstream-Audit",
      "name": "Bitstream-Audit",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LLVM-Parse + Verifier",
      "name": "LLVM-Parse + Verifier",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },

@@ -12,7 +12,11 @@
 
 #if defined(A2S_HAVE_LLVM) && A2S_HAVE_LLVM
 #include <llvm/Config/llvm-config.h>
-#define A2S_LLVM_DESCRIPTION "llvm " LLVM_VERSION_STRING
+#ifndef A2S_LLVM_PACKAGE
+#error "A2S_LLVM_PACKAGE must be defined by the build system when building with LLVM"
+#endif
+// Like SPIRV-Tools below: LLVM_VERSION_STRING alone does not tell distro builds apart.
+#define A2S_LLVM_DESCRIPTION "llvm " LLVM_VERSION_STRING " [" A2S_LLVM_PACKAGE "]"
 #else
 #define A2S_LLVM_DESCRIPTION "without llvm"
 #endif

@@ -1,6 +1,6 @@
 # Shader-Compiler `air2spirv`: Detaildesign
 
-> Status: **Entwurf v0.2** (WP-M0-SC, WP-SC-03). Autor-Rolle: `shader-compiler-engineer`.
+> Status: **Entwurf v0.3** (WP-M0-SC, WP-SC-03, WP-SC-02). Autor-Rolle: `shader-compiler-engineer`.
 > Verbindlich sind [ADR-0003](../adr/0003-languages.md) (C++20, C-ABI), [ADR-0007](../adr/0007-shader-translation-on-host.md)
 > (Übersetzung am Host, Vulkan-SPIR-V 1.6, `spirv-val`, Cache, unbekannte Records melden) und
 > [ADR-0008](../adr/0008-clean-room.md) (Clean Room). [ADR-0005](../adr/0005-gpu-guest-path.md) ist noch *Proposed*.
@@ -53,8 +53,9 @@ validieren, Reflexion. Cache-Schlüssel berechnen.
    │                     roh / Bitcode-Wrapper → genau ein Modul        ── vorhanden (Skelett)
  [2] Bitcode-Extraktion  Wrapper-Header, Bounds, Ausrichtung            ── vorhanden (Skelett)
    │
- [3] LLVM-Parse          BitstreamAudit (unbekannte Records melden)     ── WP-SC-02, WP-SC-07 ★
-   │                     parseBitcodeFile → llvm::Module, verifyModule
+ [3] LLVM-Parse          Pre-Scan (Identifikation, Größen, Layouts)     ── vorhanden (WP-SC-02)
+   │                     parseModule → llvm::Module, verifyModule       ── vorhanden (WP-SC-02)
+   │                     BitstreamAudit (unbekannte Records melden)     ── WP-SC-07 ★
  [4] AIR-Analyse         Einstiegspunkte, Stufe, Argumente, Builtins,  ── WP-SC-08 ([SPEC] für Kodierung)
    │                     Function Constants → AirModule (eigenes Modell)
  [5] Vorbereitung (IR)   Specialization, Inlining, SROA/mem2reg,        ── WP-SC-09 ff.
@@ -106,33 +107,49 @@ Muster dafür stehen schon in `input_sniffer.cpp`.
 ### 2.3 Stufe 3: LLVM-Parse und Versionsrisiko ★
 
 AIR wird von **Apples LLVM-Fork** erzeugt. Dessen Bitcode kann Records, Attribute, Metadaten-Arten oder
-Intrinsic-Namen enthalten, die Upstream-LLVM nicht kennt oder anders nummeriert. **Strategie:**
+Intrinsic-Namen enthalten, die Upstream-LLVM nicht kennt oder anders nummeriert. **Strategie** (Stand WP-SC-02,
+Details und Messwerte in §11.4):
 
-1. **Ein festgelegtes, aktuelles Upstream-LLVM** (nur `BitReader`, `BitstreamReader`, `Core`, `Support`, später
-   `Analysis`/`TransformUtils`/`Scalar` für IR-Vorbereitung). Welche Version, entscheidet Spike **S-AIR-1**
-   (ROADMAP): Welche Upstream-Version liest AIR aus dem macOS-27-SDK fehlerfrei? Lokal steht LLVM 18.1.3 bereit,
-   die CMake-Verdrahtung ist damit getestet (§11.2).
-2. **Bitstream-Audit vor dem eigentlichen Parse** (WP-SC-07 ★). `BitcodeReader` überspringt unbekannte *Blöcke*
-   still und ignoriert in einigen Blöcken unbekannte *Records*. Das widerspricht ADR-0007. Deshalb läuft vorher ein
-   eigener Durchgang mit `llvm::BitstreamCursor` (im Stil von `llvm-bcanalyzer`) über alle Blöcke und Records. Er
-   vergleicht sie mit einer Liste der Block-IDs und Record-Codes, die die festgelegte LLVM-Version kennt. Unbekannte
-   Einträge erzeugen eine Diagnose. Eine Richtlinientabelle entscheidet, was Fehler (`UNSUPPORTED`) und was Warnung
-   ist: Ein unbekannter Metadaten-Record in einem Debug-Block ist z. B. eine Warnung, ein unbekannter
-   Instruktions-Record immer ein Fehler.
-3. **Unbekannte Attribut-Arten** lässt `BitcodeReader` scheitern. Der Fehlertext wird übernommen und als
-   `A2S_ERROR_UNSUPPORTED` gemeldet, mit Hinweis auf die LLVM-Version.
-4. **`verifyModule`** läuft nach dem Parse immer. Der Reader verifiziert nicht vollständig, und Gast-Bitcode ist
-   feindlich. Ein Verifier-Fehler wird zu `A2S_ERROR_MALFORMED_INPUT`.
-5. **Typisierte und opake Zeiger:** Upstream-LLVM ≥ 17 kennt nur opake Zeiger. Altes Bitcode mit typisierten Zeigern
+1. **Ein festgelegtes Upstream-LLVM:** vorläufig **LLVM 18.1** aus dem Ubuntu-Paket `llvm-18-dev` (S-AIR-1 Teil 1,
+   Begründung in §11.4). Gelinkt werden nur die statischen Komponenten `BitReader`, `BitstreamReader`, `Core` und
+   `Support`, später `Analysis`/`TransformUtils`/`Scalar` für die IR-Vorbereitung. Ob 18.1 AIR aus dem
+   macOS-27-SDK fehlerfrei liest, klärt S-AIR-1 Teil 2 mit echtem AIR (O-2).
+2. **Pre-Scan vor dem eigentlichen Parse** (vorhanden, `src/bitcode/prescan.*`). Ein Durchgang mit
+   `llvm::BitstreamCursor` über die Blockstruktur liest Producer, Epoch und Modulversion, begrenzt Größenangaben,
+   mit denen LLVM ungeprüft Speicher anlegt, und lehnt Records ab, die LLVM 18 ohne Grenzprüfung liest (Liste in
+   §11.4). Eine neuere Epoch oder Modulversion ist `A2S_ERROR_UNSUPPORTED`.
+3. **Bitstream-Audit** (WP-SC-07 ★) erweitert den Pre-Scan: `BitcodeReader` überspringt unbekannte *Blöcke* still
+   und ignoriert in einigen Blöcken unbekannte *Records*. Das widerspricht ADR-0007. Das Audit vergleicht alle
+   Blöcke und Records mit einer Liste der Block-IDs und Record-Codes, die die festgelegte LLVM-Version kennt.
+   Unbekannte Einträge erzeugen eine Diagnose. Eine Richtlinientabelle entscheidet, was Fehler (`UNSUPPORTED`) und
+   was Warnung ist: Ein unbekannter Metadaten-Record in einem Debug-Block ist z. B. eine Warnung, ein unbekannter
+   Instruktions-Record immer ein Fehler. Bis dahin meldet LLVM einen unbekannten Instruktions-Record als
+   „Invalid value“, und das wird zu `MALFORMED`.
+4. **Fehlerabbildung** (vorhanden): Der Reader meldet jeden Fehler als `BitcodeError::CorruptedBitcode`, nur der
+   Text unterscheidet „kaputt“ von „zu neu“. Eine Tabelle von Textanfängen der festgelegten Version
+   (`Unknown attribute kind`, `Incompatible epoch`, `Unsupported version of DISubrange`, `Invalid summary
+   version`) führt zu `UNSUPPORTED`, alles andere zu `MALFORMED`. Die Tests prüfen die Tabelle mit Fixtures, eine
+   LLVM-Änderung fällt dort auf. Bei `MALFORMED` nennt eine Notiz den Producer, weil ein neuerer Producer die
+   Ursache sein kann.
+5. **`verifyModule`** läuft nach dem Parse immer. Der Reader verifiziert nicht vollständig, und Gast-Bitcode ist
+   feindlich. Ein Verifier-Fehler wird zu `A2S_ERROR_MALFORMED_INPUT`, die Verifier-Ausgabe (escaped, höchstens
+   16 Zeilen) steht in den Diagnosen. Ungültige Debug-Info und Debug-Info einer anderen Version werden wie bei
+   LLVMs eigenem Auto-Upgrade verworfen, mit Warnung. Für die Übersetzung sind sie bedeutungslos.
+6. **Typisierte und opake Zeiger:** Upstream-LLVM ≥ 17 kennt nur opake Zeiger. Altes Bitcode mit typisierten Zeigern
    wird beim Lesen automatisch umgestellt, und die Pointee-Typen gehen dabei verloren. Ob aktuelles AIR typisierte
    oder opake Zeiger nutzt und ob die Metadaten Pointee-Typen tragen (Argument-Typnamen, Strukturlayouts), ist
    **[SPEC]**. Die Absenkung darf sich deshalb **nur** auf die Typen von `load`/`store`/`getelementptr`/`alloca`
    verlassen (die sind auch bei opaken Zeigern vorhanden) und auf Metadaten, deren Bedeutung spezifiziert ist.
-6. **Unbekannte `air.*`-Intrinsics** und unbekannte Metadaten-Schlüssel an Einstiegspunkten sind `UNSUPPORTED` und
-   werden mit vollem Namen gemeldet. Es gibt keinen Fallback über „Funktion ignorieren“.
-7. **LLVM-Prozesszustand:** Pro Übersetzung gibt es einen eigenen `llvm::LLVMContext`, damit parallele Übersetzungen
-   möglich sind. Keine `cl::opt`-Änderung zur Laufzeit. Den Fatal-Error-Handler installiert die Bibliothek genau
-   einmal. Ein Fatal Error ist **nicht** abfangbar, siehe §9 (Sandbox).
+7. **Unbekannte `air.*`-Intrinsics** und unbekannte Metadaten-Schlüssel an Einstiegspunkten sind `UNSUPPORTED` und
+   werden mit vollem Namen gemeldet. Es gibt keinen Fallback über „Funktion ignorieren“ (WP-SC-08).
+8. **LLVM-Prozesszustand** (vorhanden, `src/bitcode/llvm_runtime.*`): Pro Übersetzung gibt es einen eigenen
+   `llvm::LLVMContext` mit eigenem Diagnose-Handler, damit parallele Übersetzungen möglich sind. Einmal pro
+   Prozess (`std::call_once`) installiert die Bibliothek einen Fatal-Error- und einen Bad-Alloc-Handler und setzt
+   die versteckte Option `-disable-auto-upgrade-debug-info`. Sonst ruft LLVM 18 beim Lesen jedes Moduls mit
+   aktueller Debug-Info selbst den Verifier auf und beendet bei einem Fehler den Prozess mit
+   `report_fatal_error("Broken module found")` (nachgewiesen mit `llvm-dis-18` und der Fixture
+   `invalid_dominance_debug.bc`). Danach gibt es keine `cl::opt`-Änderung mehr. Ein Fatal Error ist **nicht**
+   abfangbar, siehe §9 (Sandbox).
 
 ### 2.4 Stufe 4: AIR-Analyse
 
@@ -204,7 +221,8 @@ src/
   version.*            Versionsstring (Compiler, LLVM, SPIRV-Tools, Build-ID)            (vorhanden)
   compiler.*           Pipeline-Steuerung                                                (Stub)
   container/           .metallib-Parser                                     [SPEC] WP-SC-06
-  bitcode/             BitstreamAudit, Parse, Verifier                             WP-SC-02/07
+  bitcode/             Pre-Scan, Parse, Verifier, LLVM-Prozesszustand   (vorhanden, WP-SC-02)
+                       BitstreamAudit                                              WP-SC-07
   air/                 AirModule-Modell, Analyse, Intrinsic-Tabelle         [SPEC] WP-SC-08
   ir/                  Spezialisierung, Legalisierung, Strukturierer               WP-SC-11
   lower/               Absenkung je Bereich (memory, image, subgroup, math, …)
@@ -677,22 +695,31 @@ Fuzzing-Funde in seiner Geschichte, `report_fatal_error` beendet den Prozess, un
 Asserts sind in Release-Builds undefiniertes Verhalten. Läuft der Compiler im Host-Prozess, kann ein bösartiger
 Shader im schlimmsten Fall den Prozess übernehmen, der Gastspeicher und das `VkDevice` hält.
 
+**Befund aus WP-SC-02** (§11.4): `fuzz_air_bitcode` findet im Bitcode-Reader von LLVM 18.1 nach wenigen Sekunden
+Speicherfehler (Lesezugriffe über Vektorgrenzen, wilde Zeiger, SEGV), Speicherlecks auf Fehlerpfaden und
+Allokationen in Gigabyte-Größe aus wenigen Bytes Eingabe. Einige Klassen fängt der Pre-Scan vorher ab. Die
+häufigste Klasse (unaufgelöste Vorwärtsreferenzen im `MetadataLoader`, derselbe Codepfad bis LLVM `main`) lässt sich
+ohne einen eigenen, vollständigen Metadaten-Validator nicht ausschließen. **Der Prozess, der LLVM mit Gast-Bitcode
+füttert, muss deshalb als kompromittierbar gelten.**
+
 **Vorschlag:** Übersetzung in **separaten Worker-Prozessen** (`ritsu-shaderd`): seccomp-Filter, kein Dateisystem
 (Cache über übergebene Deskriptoren oder über den Hauptprozess), `RLIMIT_AS`/CPU-Zeitlimit, Kommunikation über
 Shared Memory + Pipe. Ein Absturz führt zu einem ehrlichen Shader-Fehler an den Gast, und der Worker startet neu. Die
-C-ABI bleibt gleich, der Worker ist nur ein weiterer Aufrufer. Das braucht einen ADR (architect). Unabhängig davon
+C-ABI bleibt gleich, der Worker ist nur ein weiterer Aufrufer. Das braucht einen ADR (architect, **WP-ARCH-04**), und
+er ist nach dem Befund Voraussetzung dafür, dass Gast-Shader einen Build mit LLVM erreichen. Unabhängig davon
 gelten interne Limits (Größe, Funktions-, Block- und Instruktionszahl, Schachtelung, Zeitbudget) →
-`UNSUPPORTED` „Limit überschritten“.
+`UNSUPPORTED` „Limit überschritten“. Die ersten davon setzt der Pre-Scan um (§11.4).
 
 ## 10. Teststrategie
 
 | Ebene | Was | Wo | Status |
 |---|---|---|---|
 | Unit | API-Verträge, struct_size, Sniffer, Wrapper-Bounds, CLI-Exit-Codes, C99-Header | `compiler/air2spirv/tests/` (`air2spirv.<bereich>.<fall>`) | **vorhanden** (55 Tests) |
+| Unit | Stufe 3 über die C-API mit Bitcode-Fixtures: gültig → „parsed N functions“, abgeschnitten/zerstört → `MALFORMED`, zu neu → `UNSUPPORTED`, Verifier, Debug-Info, Fuzz-Regressionen, Parallelität. Läuft in beiden LLVM-Modi | `tests/test_bitcode.cpp`, `tests/fixtures/bitcode/` | **vorhanden** (WP-SC-02) |
 | Unit | SPIR-V-Builder (Determinismus, Deduplikation, Kodierung, Fehlbedienung), SPIRV-Tools-Hülle (`spirv-val`/`-dis`/`-as`/`-opt` in-process), absichtlich kaputte Module | `tests/test_spirv_builder.cpp`, `tests/test_spirv_tools.cpp` | **vorhanden** (WP-SC-03) |
 | Unit | FileCheck-artiger Matcher (`CHECK`, `-NEXT`, `-SAME`, `-EMPTY`, `-NOT`, `-DAG`, `{{regex}}`, `[[VAR:regex]]`) | `tests/support/filecheck.*`, `tests/test_filecheck.cpp` | **vorhanden** (WP-SC-03) |
 | Fuzzing | `fuzz_air_sniff` (Bytes → `a2s_compile` + Sniffer-Invarianten) | `compiler/air2spirv/fuzz/` | **vorhanden** |
-| Fuzzing | `fuzz_air_bitcode` (mutierte Fixtures → Parse/Audit/Verifier) | dito | WP-SC-02/07 |
+| Fuzzing | `fuzz_air_bitcode` (mutierte Fixtures → Pre-Scan/Parse/Verifier), Fork-Modus + `triage.py` (§11.4) | dito | **vorhanden** (WP-SC-02), Audit WP-SC-07 |
 | Fuzzing | `fuzz_air2spirv_translate`: strukturbewusste IR-Mutation (LLVM `FuzzMutate`), Invariante „jede Ausgabe besteht `spirv-val`, sonst sauberer Fehler“ | dito | ab WP-SC-11 |
 | Property | Zufalls-CFGs → Strukturierer → `spirv-val` + Pfadäquivalenz | Unit-Tests | WP-SC-11 |
 | Golden/Check | Fixture → SPIR-V → `spirv-dis` → FileCheck-artige Muster (`CHECK:`, `CHECK-NOT:`), **`spirv-val` Pflicht** (Hilfsfunktion `a2s_test::check_spirv`, vorhanden) | `tests/fixtures/air/<name>/` + Check-Dateien | ab WP-SC-09 |
@@ -718,15 +745,17 @@ Threadgroup-Speicher), `compute_simd_sum`, `compute_atomics`, `compute_pointer_c
   Grenzwert `max_input_size`.
 * Erkennung von rohem Bitcode und des Bitcode-Wrappers mit vollständigen Bounds-Checks. Alles andere →
   `UNSUPPORTED` (`.metallib` mit Hinweis auf ADR-0008).
-* Gültiges Bitcode → `A2S_ERROR_UNIMPLEMENTED` mit Diagnose (ehrlich, kein Platzhalter-SPIR-V).
+* Gültiges Bitcode → `A2S_ERROR_UNIMPLEMENTED` mit Diagnose (ehrlich, kein Platzhalter-SPIR-V). Mit LLVM ist es
+  vorher geparst und verifiziert („parsed N functions“), ohne LLVM steht „bitcode not parsed“ in den Diagnosen.
 * `air2spirv-cli` mit stabilen Exit-Codes, Tests, libFuzzer-Target, Startkorpus (selbst erzeugt).
-* CMake-Optionen `AIR2SPIRV_WERROR` (an), `AIR2SPIRV_WITH_LLVM` (aus, verdrahtet und mit LLVM 18.1.3 getestet),
-  `AIR2SPIRV_SANITIZE`, `AIR2SPIRV_BUILD_FUZZERS`, `AIR2SPIRV_BUILD_ID`.
+* CMake-Optionen `AIR2SPIRV_WERROR` (an), `AIR2SPIRV_WITH_LLVM` (aus; an: Stufe 3 mit LLVM 18.1, §11.4),
+  `AIR2SPIRV_SANITIZE`, `AIR2SPIRV_BUILD_FUZZERS`, `AIR2SPIRV_BUILD_ID`, `AIR2SPIRV_LLVM_ID`.
 
 ### 11.2 Umgebungshinweise
 
 * `AIR2SPIRV_WITH_LLVM=ON` braucht unter Ubuntu 24.04 `llvm-18-dev` **und** `libzstd-dev` (sonst scheitert
-  `LLVMExports.cmake` an `zstd::libzstd_shared`).
+  `LLVMExports.cmake` an `zstd::libzstd_shared`). Für lesbare Stacks in Sanitizer-Berichten `llvm-symbolizer`
+  (kommt mit `llvm-18`).
 * ASan/UBSan und libFuzzer mit Clang brauchen `libclang-rt-18-dev`. Mit GCC reicht die Standardinstallation.
 * SPIRV-Headers und SPIRV-Tools sind seit WP-SC-03 **Pflicht** (Ubuntu 24.04: `spirv-headers` + `spirv-tools`, siehe
   §11.3). Fehlen sie, bricht CMake mit Installationshinweis ab.
@@ -806,6 +835,151 @@ Jeder Aufruf hat seinen eigenen SPIRV-Tools-Kontext und ist damit reentrant (get
 
 Stand: 137 ctest-Tests, grün mit GCC 13, Clang 18, ASan/UBSan (GCC und Clang) und mit `AIR2SPIRV_WITH_LLVM=ON`.
 
+### 11.4 LLVM-Anbindung (WP-SC-02)
+
+**Festlegung (S-AIR-1 Teil 1, vorläufig): LLVM 18.1 aus Ubuntu 24.04** (`llvm-18-dev`, getestet mit
+1:18.1.3-1ubuntu1). CMake verlangt `find_package(LLVM 18.1 CONFIG)` und bricht mit jeder anderen Major/Minor-Version
+ab, weil Fehlertexte, Record-Nummern und die Härtung unten an genau diese Version gebunden sind. Paket und Version
+stehen im Versionsstring (`llvm 18.1.3 [llvm-18-dev 1:18.1.3-1ubuntu1]`) und damit im Cache-Schlüssel, wie bei
+SPIRV-Tools (§11.3). Begründung:
+
+* **O-12** (Abhängigkeiten aus Ubuntu-Paketen) und das CI-Ziel ubuntu-24.04: LLVM 18 ist dort das Standard-LLVM,
+  ohne eigenen LLVM-Build (CI-Zeit, Binärgröße, O-SC-3).
+* **Keine Messgrundlage für eine andere Version:** Ohne Mac und ohne echtes AIR (O-2) lässt sich nicht prüfen, ob
+  eine neuere Version AIR besser liest. Der Reader von LLVM liest Bitcode älterer Versionen (Auto-Upgrade), aber
+  kein Bitcode mit Records, Attributen oder Metadaten, die erst später eingeführt wurden. Auf welchem Upstream-Stand
+  Apples Metal-Compiler im macOS-27-SDK beruht, ist unbekannt.
+* Der Fuzz-Befund unten ist kein Argument für eine neuere Version: Der Codepfad der häufigsten Absturzklasse
+  (unaufgelöste Vorwärtsreferenz am Blockende → `lazyLoadOneMetadata` ohne Index) ist in LLVM 19.1, 20.1 und
+  `main` derselbe (Quelltextvergleich von `MetadataLoader.cpp`, nicht ausgeführt).
+
+**Was S-AIR-1 Teil 2 klären muss** (echtes AIR aus eigenen Metal-Shadern, macOS-27-SDK, WP-SC-04, O-2):
+
+1. Producer-String, Epoch und Modulversion des AIR-Bitcodes (der Pre-Scan liest alle drei).
+2. Liest LLVM 18.1 alle Fixtures ohne Fehler und ohne Verifier-Befund? Falls nicht: welche Records, Attribute
+   oder Metadaten fehlen. Daraus folgt die Version: ein neueres Distro-Paket, ein eigener, festgelegter Build
+   (O-SC-3) oder eine ehrliche Ablehnung bestimmter SDK-Versionen.
+3. Welche Auto-Upgrades der Reader dabei anwendet (Intrinsics, Attribute, typisierte → opake Zeiger) und ob sie
+   Semantik verändern, die WP-SC-08 braucht.
+4. Welche Blöcke oder Records der Reader still überspringt. Das ist die Eingabe für das Audit (WP-SC-07).
+5. Ob Debug-Info vorhanden ist und in welcher Version (sie wird sonst mit Warnung verworfen).
+6. Triple und DataLayout des AIR-Moduls (**[SPEC]**). LLVM 18 kennt die AIR-Architektur nicht und liest das
+   Triple als unbekannte Architektur. Das muss für den Parse folgenlos bleiben.
+
+**Ablauf von Stufe 3** (`src/bitcode/`, nur mit `AIR2SPIRV_WITH_LLVM=ON`; ohne LLVM wird nichts geparst und das
+gemeldet):
+
+1. `prepare_llvm_runtime()` (einmal pro Prozess): Fatal-Error- und Bad-Alloc-Handler, `-disable-auto-upgrade-debug-info`
+   (§2.3 Punkt 8). Scheitert das, ist das `A2S_ERROR_INTERNAL`, und es wird nichts geparst.
+2. Pre-Scan (`prescan.cpp`) über die Blockstruktur mit `llvm::BitstreamCursor`:
+   * Identifikation: Producer, Epoch (≠ 0 → `UNSUPPORTED`), Modulversion (> 2 → `UNSUPPORTED`), unbekannter Record
+     im `IDENTIFICATION_BLOCK` → `UNSUPPORTED`.
+   * Größenangaben, mit denen LLVM 18 ungeprüft Speicher anlegt: Typtabelle (`NUMENTRY`), Blockzahl
+     (`DECLAREBLOCKS`), Blocknummer in `blockaddress`, Parameterindex in Attributgruppen. Mehr, als der Strom
+     kodieren kann → `MALFORMED`. Mehr als ein festes Limit → `UNSUPPORTED`. Dazu Limits für Vektorlänge
+     (2¹⁶ Elemente) und Integer-Breite (4096 Bit), weil LLVM proportional dazu Speicher anlegt (Shuffle-Masken,
+     Splats, `APInt`).
+   * Records, die LLVM 18 ohne Prüfung liest: unvollständige Attributgruppen-Einträge, `DATA`-Konstanten mit einem
+     Typ, der weder Array noch Vektor ist, Metadaten-Anhänge an eine Instruktion, die es nicht gibt → `MALFORMED`.
+     Inline-Assembly → `UNSUPPORTED` (Metal kennt keins).
+   * `USELIST_BLOCK`s (nur die Reihenfolge von Use-Listen, für die Übersetzung bedeutungslos, im Reader mit
+     ungeprüften IDs) werden in einer privaten Kopie der Eingabe auf eine unbekannte Block-ID umgeschrieben, die
+     LLVM überspringt. Eine Notiz nennt ihre Zahl.
+   * **Dekodieren wie LLVM:** Die Prüfungen schützen nur, wenn der Pre-Scan dieselben Records mit denselben
+     Abkürzungen liest wie der Reader. Deshalb folgt er dessen Struktur: Die Rolle eines Blocks hängt vom
+     Elternblock ab (ein Konstantenblock wird als Kind von Modul oder Funktion geprüft, sonst nur durchlaufen, weil
+     der Reader ihn überspringt). BLOCKINFO zählt nur als einziges direktes Kind des Modulblocks vor dem ersten
+     Funktionsblock, an anderen Stellen überspringt ihn der Reader, eine zweite oder spätere ist `UNSUPPORTED`.
+     Abkürzungsdefinitionen auf Modulebene nach dem ersten Funktionsblock sind `UNSUPPORTED` (der Reader springt
+     über diesen Bereich). Jeder Block muss genau an seiner angegebenen Länge enden (der Reader überspringt manche
+     Blöcke per Länge und liest andere bis `END_BLOCK`). Die Wort-Offsets, zu denen der Reader springt
+     (`VSTOFFSET`, `FNENTRY`), müssen auf eine Symboltabelle bzw. einen Funktionsblock dieses Moduls zeigen, die der
+     Pre-Scan gelesen hat, und `FNENTRY` muss eine Funktion nennen. Jedes Modul beginnt mit frischem Zustand, wie
+     im Reader. Die Fixtures `layout_*.bc` prüfen das (Code-Review zu WP-SC-02).
+3. `getBitcodeModuleList` + `parseModule` mit eigenem `LLVMContext` und einem Diagnose-Handler, der alles einsammelt
+   (ohne ihn ruft `LLVMContext::diagnose` bei Fehlern `exit(1)`). Mehr als ein Modul → `UNSUPPORTED`.
+4. `verifyModule` immer, danach Debug-Info-Behandlung wie im Auto-Upgrade von LLVM, ohne dessen Fatal Error.
+5. Ergebnis: Die Zahlen gehen als Notiz in die Diagnosen („parsed 3 functions (2 defined, 1 declared), 0 global
+   variables, 19 instructions (LLVM 18.1.3)“). Danach folgt weiterhin `A2S_ERROR_UNIMPLEMENTED`.
+
+**Fehlerabbildung**
+
+| Ursache | Status | Diagnose (Beispiel) |
+|---|---|---|
+| Bitstrom kaputt, abgeschnitten, Record ungültig | `MALFORMED` | `bitcode: LLVM 18.1.3 cannot read the module: …` + Producer-Notiz |
+| Verifier-Fehler | `MALFORMED` | `bitcode: the module does not pass the LLVM verifier`, dann bis zu 16 Zeilen `verifier: …` |
+| Fehler über den Diagnose-Handler des Kontexts | `MALFORMED` | `llvm: …` |
+| Epoch, Modulversion, Identifikations-Record neuer als LLVM 18 | `UNSUPPORTED` | `bitcode: epoch 1 is not supported …` |
+| Unbekannte Attribut-Art, DISubrange-Version, Summary-Version (Fehlertext des Readers) | `UNSUPPORTED` | `bitcode: attribute kind unknown to the linked LLVM (LLVM 18.1.3): Unknown attribute kind (100) …` |
+| Mehrere Module, Inline-Assembly, Limit überschritten | `UNSUPPORTED` | `bitcode: vector element count … exceeds the limit of 65536` |
+| Ungültige oder fremde Debug-Info | Warnung, weiter | `warning: bitcode: invalid debug info dropped` |
+| LLVM-Laufzeit nicht konfigurierbar (falsche LLVM-Version) | `INTERNAL` | `bitcode: LLVM runtime not usable: …` |
+
+Alle LLVM-Texte gelten als Gast-Daten (sie zitieren Namen und IR) und werden escaped und gekürzt.
+
+**Was sich im Prozess nicht abfangen lässt** (Eingabe für WP-ARCH-04):
+
+1. **`report_fatal_error`** in LLVM: Der installierte Handler schreibt den Grund (bereinigt) nach stderr und ruft
+   `abort()`. Zurückkehren darf er nicht, und eine Ausnahme aus ihm würde durch LLVM-Code laufen, der ohne
+   Exceptions gebaut ist: Destruktoren und Aufräumarbeiten in diesen Frames würden übersprungen, der `LLVMContext`
+   bliebe in unbekanntem Zustand. `abort()` statt LLVMs eigenem `exit(1)`, weil `exit` in einem Prozess mit
+   weiteren Threads statische Destruktoren nebenläufig ausführt und für einen Supervisor nicht von einem normalen
+   Ende zu unterscheiden ist. Bekannte Auslöser sind entschärft: `Broken module found` (Debug-Info-Upgrade
+   abgeschaltet), Lazy-Metadata (nicht genutzt), Riesen-Allokationen (Pre-Scan). Weitere sind nicht ausgeschlossen.
+2. **Allokationsfehler in LLVM:** `safe_malloc` → `report_bad_alloc_error` → Handler → `abort()`. Ein
+   `std::bad_alloc` aus `operator new` läuft dagegen durch LLVM-Frames ohne Aufräumen bis zur C-ABI und wird dort
+   zu `A2S_ERROR_OUT_OF_MEMORY`. Der Prozess lebt, hat aber LLVM-Speicher verloren.
+3. **Speicherfehler im Reader** (Fuzz-Befund unten): SEGV, Lesen außerhalb von Puffern, wilde Zeiger. Weder abfangbar
+   noch sicher harmlos. `llvm_unreachable` und Assertions sind im Ubuntu-Build abgeschaltet und damit undefiniertes
+   Verhalten.
+4. **Lecks auf Fehlerpfaden** (`MDTuple`-Platzhalter, vorwärts referenzierte Werte): Jede abgelehnte Eingabe kann
+   Speicher kosten. In einem langlebigen Prozess wächst er.
+5. **Prozessweiter Zustand:** Fatal-Error-/Bad-Alloc-Handler und `cl::opt` gelten für den ganzen Prozess. LLVM ist
+   statisch gelinkt und hat damit eigene globale Variablen, getrennt von einem Mesa-`libLLVM.so` im selben Prozess.
+6. **Verworfen:** `llvm::CrashRecoveryContext` (fängt SEGV/SIGABRT per Signal-Handler und `longjmp`). Es installiert
+   prozessweite Signal-Handler, die mit dem DBT, dem VMM und der Rust-Laufzeit kollidieren, und macht
+   Speicherfehler nicht sicher, nur leiser.
+
+**Fuzzing: `fuzz_air_bitcode`**
+
+`compiler/air2spirv/fuzz/fuzz_air_bitcode.cpp` geht wie Produktionscode über `a2s_compile()` und prüft: Status nur
+`MALFORMED`/`UNSUPPORTED`/`UNIMPLEMENTED`, konsistentes Ausgabeobjekt, `UNIMPLEMENTED` nur mit geparstem Modul,
+deterministisches Ergebnis bei Wiederholung. Startkorpus sind die Fixtures (`generate.sh`). Weil LLVM-Funde den
+Fuzzer sonst sofort anhalten, läuft er im Fork-Modus weiter. Danach spielt `triage.py` jedes Artefakt erneut ab
+und ordnet es nach dem ersten aussagekräftigen Stack-Frame ein: `air2spirv` (Lauf scheitert), `llvm` (bekannt,
+wird aufgelistet), `no-repro` (nichtdeterministisch), `unknown` (Lauf scheitert). Die Abdeckung, die libFuzzer
+sieht, stammt nur aus `air2spirv` selbst, weil die LLVM-Bibliotheken der Distribution nicht instrumentiert sind.
+
+Gefundene Klassen (alle im Reader von LLVM 18.1.3, keine im `air2spirv`-Code):
+
+| Klasse | Wirkung | Status |
+|---|---|---|
+| Parameterindex einer Attributgruppe → `AttributeList` mit 2³² Einträgen | Allokationsfehler → Fatal (abort) | Pre-Scan, Fixture `huge_attribute_index.bc` |
+| Vektortyp mit 67 Mio. Elementen → Shuffle-Maske | 1 GB aus 3,5 KB Eingabe, Timeout | Pre-Scan-Limit, Regression `vector_type_67m_elements.bc` |
+| Unterminierter String in Attributgruppe | Lesen hinter dem Record (Stack) | Pre-Scan, Regression `attr_group_unterminated_string.bc` |
+| `DATA`-Konstante mit skalarem Typ (ungeprüfter `cast<VectorType>`) | SEGV | Pre-Scan, Regression `data_constant_scalar_type.bc` |
+| Use-Liste mit ungültiger Wert-ID | SEGV | Block neutralisiert, Regression `uselist_bad_value_id.bc` |
+| Metadaten-Anhang an nicht vorhandene Instruktion | SEGV | Pre-Scan, Regression `attachment_bad_instruction.bc` |
+| Unaufgelöste Metadaten-Vorwärtsreferenz (`lazyLoadOneMetadata`) | SEGV | **offen**, Beleg in `fuzz/llvm18_findings/` |
+| Strukturindex in Funktionsrumpf (`StructType::getTypeAtIndex`) | SEGV | **offen**, dito |
+| Wilder Lesezugriff in `parseFunctionBody` | SEGV | **offen**, dito |
+| Lecks auf Fehlerpfaden (`MDTuple`-Platzhalter, Vorwärtswerte) | Speicher wächst | **offen**, dito |
+
+Die drei offenen SEGV-Dateien bringen auch `llvm-dis-18` der Distribution zum Absturz. Die offenen Klassen
+schließt nur ein Validator aus, der die Reader-Logik je Record nachbildet (Metadaten-Referenzen, Typen der
+Operanden). Das ist der Umfang eines eigenen Readers und gehört, wenn überhaupt, zu WP-SC-07. Die eigentliche
+Antwort ist WP-ARCH-04.
+
+**30-min-Lauf** (Akzeptanz WP-SC-02, `FUZZ_TIME=1800 FUZZ_JOBS=3 run_fuzz_air_bitcode.sh`, 4 Kerne, nach allen
+Pre-Scan-Maßnahmen): 59,7 Mio. Ausführungen in 1816 s, 2566 Abdeckungspunkte, Korpus 419 Einträge.
+104 Artefakte, `triage.py`: **0 in `air2spirv`**, 0 nicht zuordenbar, 104 in LLVM (51 × Metadaten-Vorwärtsreferenz,
+34 + 17 Lecks, je 1 × Strukturindex und wilder Lesezugriff). Vor den Pre-Scan-Maßnahmen fand ein 3-min-Lauf
+14 Abstürze, 1 Timeout und 1 Leck, davon 7 aus der Attributgruppen-Klasse.
+
+**CI:** `ci.yml` baut und testet mit LLVM 18 unter ASan/UBSan (Eintrag `clang-asan-llvm`). `fuzz.yml` (Job
+`cpp-llvm`) fuzzt 60 s pro Pull Request und 30 min pro Nacht mit anschließender Einordnung und lädt die Artefakte
+immer hoch. Stand: 154 ctest-Tests in beiden LLVM-Modi grün mit GCC 13, Clang 18 und ASan/UBSan (GCC, Clang).
+
 ## 12. Work Packages
 
 Reihenfolge nach Abhängigkeiten. ★ = Hochrisiko, zuerst als Spike. **M4** = für den Meilenstein „Erstes Dreieck“
@@ -814,12 +988,12 @@ nötig.
 | WP | Titel | Abhängig von | Akzeptanz |
 |---|---|---|---|
 | WP-SC-01 | Skelett, C-ABI, Sniffer, CLI, Tests, Fuzz-Target (= **WP-M0-SC**) | – | **erledigt:** Build mit GCC/Clang/ASan grün, 55 ctest-Tests, Fuzz-Smoke ohne Fund |
-| WP-SC-02 | LLVM festlegen (S-AIR-1), Parse + Verifier, Fehlerabbildung, `fuzz_air_bitcode` (M4) | 01, (04 für S-AIR-1) | Upstream-Clang-Bitcode und Fixtures parsen; kaputtes Bitcode → `MALFORMED`; 30 min Fuzzing ohne Fund; LLVM-Bezug reproduzierbar in CI |
+| WP-SC-02 | LLVM festlegen (S-AIR-1), Parse + Verifier, Fehlerabbildung, `fuzz_air_bitcode` (M4) | 01, (04 für S-AIR-1) | **erledigt mit Befund** (§11.4): LLVM 18.1 vorläufig festgelegt (S-AIR-1 Teil 1), Upstream-Clang-Bitcode parst, kaputt → `MALFORMED`, zu neu → `UNSUPPORTED`, CI-Eintrag mit LLVM. Fuzzing: keine Funde im `air2spirv`-Code, aber Speicherfehler in LLVMs Reader → WP-ARCH-04, WP-SC-07. S-AIR-1 Teil 2 offen (O-2) |
 | WP-SC-03 | SPIR-V-Infrastruktur: SPIRV-Headers/-Tools einbinden, deterministischer Builder, `spirv-val`/`spirv-opt` in-process, `spirv-dis` + FileCheck-artiger Matcher für Tests (M4) | 01 | **erledigt** (§11.3): handgebautes Compute-Modul (BDA) besteht `spirv-val`, zweimal bytegleich erzeugt; kaputte Module abgelehnt; Matcher läuft; 137 ctest-Tests |
 | WP-SC-04 | Fixture-Korpus v1 (Liste §10), Erzeugungsskript, READMEs (M4) | O-2 (Mac) | Fixtures + READMEs eingecheckt, Clean-Room-Review bestanden |
 | WP-SC-05 ★ | **Spezifikation** `.metallib` + AIR-Konventionen (Metadaten, Adressräume, Intrinsics, Function Constants) durch `reverse-engineer`, schwarzer Kasten über eigene Fixtures (M4) | 04 | Spec in `docs/specs/metallib/` mit Konfidenz je Abschnitt |
 | WP-SC-06 | `.metallib`-Container-Parser nach Spec + Fuzz-Target (M4) | 05 | alle Fixtures zerlegt; Bounds-Tests; Fuzz 30 min ohne Fund |
-| WP-SC-07 ★ | Bitstream-Audit: unbekannte Blöcke/Records/Attribute/Intrinsics erkennen und melden (M4) | 02, 04 | künstlich eingefügte unbekannte Records → Diagnose; Fixtures ohne Fund |
+| WP-SC-07 ★ | Bitstream-Audit: unbekannte Blöcke/Records/Attribute/Intrinsics erkennen und melden, erweitert den Pre-Scan (§11.4). Prüfen, ob eine Validierung der Metadaten-Referenzen (Schema je Record-Code) die häufigste LLVM-Absturzklasse im Prozess ausschließen kann | 02, 04 | künstlich eingefügte unbekannte Records → Diagnose; Fixtures ohne Fund |
 | WP-SC-08 | AIR-Analyse → `AirModule` (Einstiegspunkte, Stufen, Argumente, Builtins), Reflexionsgrundlage (M4) | 02, 05 | alle Fixtures korrekt beschrieben (Unit-Tests gegen erwartete Modelle) |
 | WP-SC-09 | **Erstes End-to-End:** Kernel `out[i] = in[i] * 2` → SPIR-V (inkl. Spike S-SC-1 LLVM-SPIR-V-Backend) (M4) | 03, 08 | `compute_double` → `A2S_OK`, `spirv-val` grün, Check-Muster (`OpEntryPoint GLCompute`, BDA-Zugriff, `OpFMul`), bytegleich bei Wiederholung; Ausführung auf Lavapipe liefert `2·x` (sobald `ritsu-gpu-host` Compute kann) |
 | WP-SC-10 | ADR Bindungsmodell (§5) mit architect + gpu-engineer (M4) | 09 | ADR *Accepted* |
@@ -852,7 +1026,7 @@ steuerbare Teil ist **04/05**: Mac-Zugang und Clean-Room-Spezifikation. Deshalb 
 |---|---|---|---|
 | O-SC-1 | Bindungsmodell (§5): Argument-Tabelle + Bindless oder klassische Descriptor-Sets? | Argument-Tabelle + Bindless | architect + gpu-engineer (ADR) |
 | O-SC-2 | Compiler im Host-Prozess oder im sandboxed Worker (§9)? | Worker, spätestens vor M6 (Q-SEC-1) | architect (ADR) |
-| O-SC-3 | Welche LLVM-Version und wie bezogen: Distro-Paket (lokal 18.1.3) oder selbst gebautes, festgelegtes LLVM (CI-Zeit, Binärgröße)? | Spike S-AIR-1; danach festgelegter eigener Build als CI-Artefakt | shader-compiler-engineer + Mensch (CI-Ressourcen) |
+| O-SC-3 | Welche LLVM-Version und wie bezogen: Distro-Paket (lokal 18.1.3) oder selbst gebautes, festgelegtes LLVM (CI-Zeit, Binärgröße)? | **Vorläufig** (S-AIR-1 Teil 1, WP-SC-02): Ubuntu-Paket `llvm-18-dev`, LLVM 18.1 (§11.4). Endgültig nach S-AIR-1 Teil 2 mit echtem AIR; ein eigener Build lohnt sich nur, wenn 18.1 AIR nicht liest oder ein instrumentierter Reader fürs Fuzzing gebraucht wird | shader-compiler-engineer + Mensch (CI-Ressourcen) |
 | O-SC-4 | SPIRV-Tools/-Headers (und Hash-Bibliothek): System-Paket, Git-Submodule oder vendored? FetchContent braucht Netzwerk im Build | **Entschieden** (SPIRV-Tools/-Headers, = O-12 in [OPEN-QUESTIONS.md, „Entschieden“](../OPEN-QUESTIONS.md#entschieden)): Ubuntu-Pakete `spirv-headers`/`spirv-tools` aus noble-updates, kein gepinnter Commit. Bedingung erfüllt: läuft nur im Host-Compiler, keine Auswirkung auf den macOS-Gast. Paketidentität im Cache-Schlüssel (§11.3). Noch offen: nur die Hash-Bibliothek (WP-SC-18). | Mensch (entschieden 2026-10-14); Hash-Bibliothek: shader-compiler-engineer |
 | O-SC-5 | Wer kompiliert die Fixtures auf welchem Mac mit welchem Xcode/SDK (macOS-27-SDK)? | siehe O-2 | Mensch |
 | O-SC-6 | Variante P: Kommt über das Paravirt-Protokoll wirklich AIR an (Annahme in ADR-0005) oder ein anderes Format? | durch S-GPU-1 klären; bestimmt den Scope des Compilers | reverse-engineer |
@@ -871,7 +1045,13 @@ steuerbare Teil ist **04/05**: Mac-Zugang und Clean-Room-Spezifikation. Deshalb 
   Ausführungstests, Warnung, wenn die Rekonvergenz nicht erhalten bleibt.
 * **R-SC-3 Feature-Lücken auf Iris Xe** (Mesh, Ray Query, Subgroup 32 im Fragment, `bfloat`): ehrlich reduzierte
   Feature-Meldung statt stiller Fehler.
-* **R-SC-4 LLVM im Host-Prozess** (§9), bis die Sandbox steht.
+* **R-SC-4 LLVM im Host-Prozess** (§9): durch den Fuzz-Befund aus WP-SC-02 bestätigt (§11.4). Bis WP-ARCH-04 steht,
+  darf kein Gast-Shader einen Build mit LLVM erreichen.
+* **Schulden aus WP-SC-02:** Der Pre-Scan modelliert Interna von LLVM 18 (Record-Layouts, Typ-IDs, welche Records
+  Instruktionen erzeugen). Ein LLVM-Wechsel muss ihn mitprüfen (die Tests mit Fuzz-Regressionen helfen dabei).
+  Die Fehlerabbildung „zu neu“ hängt an Fehlertexten des Readers. Das Fuzzing sieht keine Abdeckung innerhalb von
+  LLVM (nicht instrumentiert). Bekannte LLVM-Absturzklassen werden nicht als Regression geführt, nur von
+  `triage.py` als `llvm` eingeordnet.
 * **Schulden im Skelett:** `.metallib` wird nicht erkannt (Spec fehlt). Reflexion und `a2s_binding` sind
   PROVISIONAL. Keine Hash-/Cache-Schlüssel-Funktion. Keine feste `spirv-opt`-Passliste (WP-SC-27), `optimize()`
   nimmt bis dahin eine explizite Liste. Kein registrierter SPIR-V-Generator-Magic (Header-Wort 2 = 0). Fuzz-CI-Job

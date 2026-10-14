@@ -2,6 +2,8 @@
  * Exit code 0 = pass. Registered as ctest test air2spirv.c_header.compiles_and_links_as_c99. */
 #include "air2spirv/air2spirv.h"
 
+#include "a2s_fixture_minimal_bc.h" /* generated: tests/fixtures/bitcode/minimal.bc */
+
 #include <stdio.h>
 #include <string.h>
 
@@ -26,7 +28,6 @@ int main(void) {
     a2s_function_constant constant;
     a2s_status status;
     size_t word_count = 1;
-    static const uint8_t bitcode[8] = {'B', 'C', 0xC0, 0xDE, 0, 0, 0, 0};
 
     /* All enumerators and macros must be usable from C. */
     a2s_stage stage = A2S_STAGE_KERNEL;
@@ -53,8 +54,8 @@ int main(void) {
     constant.index = 0;
     constant.type = A2S_CONSTANT_TYPE_UINT32;
     constant.component_count = 1;
-    input.data = bitcode;
-    input.size = sizeof(bitcode);
+    input.data = a2s_fixture_minimal_bc;
+    input.size = sizeof(a2s_fixture_minimal_bc);
     input.entry_point = "main0";
     input.options = &options;
     input.function_constants = &constant;

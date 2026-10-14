@@ -1,7 +1,7 @@
 {
  "project": "Ritsu",
  "goal": "M1 „Erster Befehl“: statisches aarch64-Linux-ELF läuft über T0, Differenztests grün",
- "goal_detail": "Durchgehende Pipeline. Laufend: CPU WP-DBT-02 · GPU WP-GPU-24 · Shader WP-SC-02 · Qualität WP-DBT-04 · Architekt WP-ARCH-07.",
+ "goal_detail": "Pipeline angehalten auf Wunsch des Projektinhabers (Runde abgeschlossen). Nächste Schritte nach Freigaben O-8, O-13…O-17: WP-DBT-09/07 → WP-DBT-03 (M1), WP-ARCH-04, WP-GPU-03.",
  "milestones": [
   {
    "id": "M0",
@@ -154,7 +154,13 @@
    "wp": "WP-GPU-24",
    "summary": "Protokollbefehle für Views, Sampler, Pipelines, Pass2, Binds; Dreieck-Setup Ende-zu-Ende über das Protokoll grün",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-SC-02",
+   "summary": "LLVM-Bitcode-Parse mit eigener Vorprüfung; Fuzzing fand 104 Abstürze in LLVM selbst → Sandbox (WP-ARCH-04) Pflicht",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 20:10"
+ "updatedAt": "2026-10-14 21:00"
 }

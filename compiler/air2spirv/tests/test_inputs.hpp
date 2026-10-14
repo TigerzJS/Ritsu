@@ -1,8 +1,11 @@
 // Builders for synthetic test inputs. Only public LLVM formats; no Apple data (ADR-0008).
 #pragma once
 
+#include "a2s_fixture_minimal_bc.h" // generated from tests/fixtures/bitcode/minimal.bc
+
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <span>
 #include <vector>
 
@@ -57,6 +60,22 @@ inline std::vector<std::uint8_t> make_wrapper(const WrapperFields& f,
 inline std::vector<std::uint8_t> make_valid_wrapper() {
     const auto payload = make_raw_bitcode(16);
     return make_wrapper(WrapperFields{}, payload);
+}
+
+// A real, valid LLVM module with one function (tests/fixtures/bitcode/src/minimal.ll). Parses
+// and verifies with LLVM, so it reaches A2S_ERROR_UNIMPLEMENTED in both build modes. Use
+// make_raw_bitcode() only where the content behind the magic does not matter (sniffer tests).
+inline std::vector<std::uint8_t> valid_bitcode() {
+    return std::vector<std::uint8_t>(std::begin(a2s_fixture_minimal_bc),
+                                     std::end(a2s_fixture_minimal_bc));
+}
+
+// valid_bitcode() inside a well-formed bitcode wrapper.
+inline std::vector<std::uint8_t> make_valid_bitcode_wrapper() {
+    const auto payload = valid_bitcode();
+    WrapperFields f;
+    f.size = static_cast<std::uint32_t>(payload.size());
+    return make_wrapper(f, payload);
 }
 
 inline std::span<const std::byte> as_bytes(const std::vector<std::uint8_t>& v) {

@@ -258,7 +258,7 @@ A2S_TEST(compile_reports_empty_input_as_malformed) {
 
 A2S_TEST(compile_validates_entry_point) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_raw_bitcode();
+    const auto bytes = a2s_test::valid_bitcode();
     a2s_input input = input_for(bytes);
 
     input.entry_point = "";
@@ -281,7 +281,7 @@ A2S_TEST(compile_validates_entry_point) {
 
 A2S_TEST(compile_validates_options) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_raw_bitcode();
+    const auto bytes = a2s_test::valid_bitcode();
     a2s_input input = input_for(bytes);
     a2s_compile_options options;
     input.options = &options;
@@ -333,7 +333,7 @@ A2S_TEST(compile_validates_options) {
 
 A2S_TEST(compile_validates_function_constants) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_raw_bitcode();
+    const auto bytes = a2s_test::valid_bitcode();
     a2s_input input = input_for(bytes);
 
     input.function_constant_count = 1;
@@ -379,12 +379,17 @@ A2S_TEST(compile_validates_function_constants) {
 
 A2S_TEST(compile_returns_unimplemented_for_raw_bitcode) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_raw_bitcode(64);
+    const auto bytes = a2s_test::valid_bitcode();
     const a2s_input input = input_for(bytes);
     auto r = compile(ctx.get(), &input);
     A2S_CHECK_EQ(r.status, A2S_ERROR_UNIMPLEMENTED);
     A2S_CHECK(diagnostics_contain(r.output.get(), "not implemented"));
     A2S_CHECK(diagnostics_contain(r.output.get(), "note: input is raw LLVM bitcode"));
+#if A2S_TEST_HAVE_LLVM
+    A2S_CHECK(diagnostics_contain(r.output.get(), "parsed 1 function"));
+#else
+    A2S_CHECK(diagnostics_contain(r.output.get(), "built without LLVM"));
+#endif
 
     a2s_reflection reflection{};
     reflection.struct_size = sizeof(reflection);
@@ -396,7 +401,7 @@ A2S_TEST(compile_returns_unimplemented_for_raw_bitcode) {
 
 A2S_TEST(compile_returns_unimplemented_for_wrapped_bitcode) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_valid_wrapper();
+    const auto bytes = a2s_test::make_valid_bitcode_wrapper();
     a2s_input input = input_for(bytes);
     input.entry_point = "kernel_main";
     auto r = compile(ctx.get(), &input);
@@ -428,10 +433,11 @@ A2S_TEST(compile_reports_unknown_format_as_unsupported) {
 A2S_TEST(compile_enforces_context_input_limit) {
     a2s_context_desc desc;
     a2s_context_desc_init(&desc);
-    desc.max_input_size = 32;
+    const auto small = a2s_test::valid_bitcode();
+    auto large = small;
+    large.resize(large.size() + 4, 0); // trailing padding, still valid bitcode
+    desc.max_input_size = small.size();
     auto ctx = make_context(&desc);
-    const auto small = a2s_test::make_raw_bitcode(32);
-    const auto large = a2s_test::make_raw_bitcode(36);
     const a2s_input small_input = input_for(small);
     const a2s_input large_input = input_for(large);
     A2S_CHECK_EQ(compile(ctx.get(), &small_input).status, A2S_ERROR_UNIMPLEMENTED);
@@ -468,7 +474,7 @@ A2S_TEST(output_getters_handle_null) {
 
 A2S_TEST(output_outlives_context) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_raw_bitcode();
+    const auto bytes = a2s_test::valid_bitcode();
     const a2s_input input = input_for(bytes);
     auto r = compile(ctx.get(), &input);
     ctx.reset();
@@ -478,8 +484,8 @@ A2S_TEST(output_outlives_context) {
 
 A2S_TEST(compile_is_thread_safe_on_shared_context) {
     auto ctx = make_context();
-    const auto raw = a2s_test::make_raw_bitcode(64);
-    const auto wrapped = a2s_test::make_valid_wrapper();
+    const auto raw = a2s_test::valid_bitcode();
+    const auto wrapped = a2s_test::make_valid_bitcode_wrapper();
     constexpr int kThreads = 8;
     constexpr int kIterations = 200;
     std::array<int, kThreads> mismatches{};
@@ -509,7 +515,7 @@ A2S_TEST(compile_is_thread_safe_on_shared_context) {
 
 A2S_TEST(compile_is_deterministic) {
     auto ctx = make_context();
-    const auto bytes = a2s_test::make_valid_wrapper();
+    const auto bytes = a2s_test::make_valid_bitcode_wrapper();
     const a2s_input input = input_for(bytes);
     auto a = compile(ctx.get(), &input);
     auto b = compile(ctx.get(), &input);

@@ -102,8 +102,8 @@ A2S_TEST(unknown_format_exits_4) {
 
 A2S_TEST(bitcode_exits_5_until_translation_exists) {
     const fs::path dir = scratch("bitcode_exits_5_until_translation_exists");
-    const fs::path raw = write_file(dir / "raw.bc", a2s_test::make_raw_bitcode(32));
-    const fs::path wrapped = write_file(dir / "wrapped.bc", a2s_test::make_valid_wrapper());
+    const fs::path raw = write_file(dir / "raw.bc", a2s_test::valid_bitcode());
+    const fs::path wrapped = write_file(dir / "wrapped.bc", a2s_test::make_valid_bitcode_wrapper());
     const fs::path out = dir / "out.spv";
     A2S_CHECK_EQ(run_cli(quote(raw.string()) + " -o " + quote(out.string())), 5);
     A2S_CHECK_EQ(run_cli(quote(wrapped.string()) + " -o " + quote(out.string()) + " --entry main0"),
