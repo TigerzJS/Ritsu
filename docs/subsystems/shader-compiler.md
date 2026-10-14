@@ -1,6 +1,6 @@
 # Shader-Compiler `air2spirv`: Detaildesign
 
-> Status: **Entwurf v0.1** (WP-M0-SC). Autor-Rolle: `shader-compiler-engineer`.
+> Status: **Entwurf v0.2** (WP-M0-SC, WP-SC-03). Autor-Rolle: `shader-compiler-engineer`.
 > Verbindlich sind [ADR-0003](../adr/0003-languages.md) (C++20, C-ABI), [ADR-0007](../adr/0007-shader-translation-on-host.md)
 > (Übersetzung am Host, Vulkan-SPIR-V 1.6, `spirv-val`, Cache, unbekannte Records melden) und
 > [ADR-0008](../adr/0008-clean-room.md) (Clean Room). [ADR-0005](../adr/0005-gpu-guest-path.md) ist noch *Proposed*.
@@ -190,6 +190,8 @@ Die Reihenfolge ist fest und versioniert (sie gehört zur Determinismus-Garantie
   abschaltbar. Ungültiges SPIR-V führt bei Treibern zu Abstürzen oder zu stiller Fehlübersetzung, und das ist teurer
   als die Validierungszeit. Ein Validierungsfehler nach der Emission ist ein **Compiler-Bug** und wird als
   `A2S_ERROR_INTERNAL` gemeldet, nie an den Gast als „Shader kaputt“.
+  Dafür gibt es `spirv::check_generated_module()` (§11.3), das die Validator-Meldungen zeilenweise escaped als
+  Diagnosen anhängt.
 
 ## 3. Interne Struktur (Zielbild)
 
@@ -199,13 +201,14 @@ src/
   options.*            struct_size-Laden, Optionen normalisieren                         (vorhanden)
   input_sniffer.*      roh/Wrapper erkennen, Bounds                                      (vorhanden)
   diagnostics.*        Diagnosen, Escaping feindlicher Strings                           (vorhanden)
+  version.*            Versionsstring (Compiler, LLVM, SPIRV-Tools, Build-ID)            (vorhanden)
   compiler.*           Pipeline-Steuerung                                                (Stub)
   container/           .metallib-Parser                                     [SPEC] WP-SC-06
   bitcode/             BitstreamAudit, Parse, Verifier                             WP-SC-02/07
   air/                 AirModule-Modell, Analyse, Intrinsic-Tabelle         [SPEC] WP-SC-08
   ir/                  Spezialisierung, Legalisierung, Strukturierer               WP-SC-11
   lower/               Absenkung je Bereich (memory, image, subgroup, math, …)
-  spirv/               Builder, Capability-Tracker, Validierung/Optimierung        WP-SC-03
+  spirv/               Builder, Capability-Sammlung, Validierung/Optimierung  (vorhanden, WP-SC-03)
   cache/               Schlüsselberechnung                                         WP-SC-18
 ```
 
@@ -628,7 +631,8 @@ Host verteilt Übersetzungen auf einen Thread-Pool auf den E-Kernen (ARCHITECTUR
 `ritsu-gpu-host` bindet den Header in einem Modul `ffi` ein (bindgen beim Build oder handgeschriebene,
 mit `static_assert`s gegen die Header-Größen geprüfte Deklarationen; Entscheidung beim `gpu-engineer`). Die
 Bibliothek wird statisch gelinkt (`POSITION_INDEPENDENT_CODE`, versteckte Symbol-Sichtbarkeit außer `a2s_*`). Der
-Rust-Build muss die C++-Laufzeit (`stdc++`) und, falls aktiviert, die LLVM-Bibliotheken linken. Es gibt keine
+Rust-Build muss die C++-Laufzeit (`stdc++`), seit WP-SC-03 die statischen SPIRV-Tools-Bibliotheken
+(`SPIRV-Tools-opt`, dann `SPIRV-Tools`) und, falls aktiviert, die LLVM-Bibliotheken linken. Es gibt keine
 Callbacks von C++ nach Rust, also auch kein Unwinding über die Grenze.
 
 ## 7. Determinismus
@@ -639,6 +643,8 @@ SPIR-V. Regeln:
 * keine Iteration über Container, die nach Zeigern sortiert sind (`std::unordered_map<Value*,…>` nur für Lookup,
   nie für die Ausgabereihenfolge), keine Zeitstempel, keine Abhängigkeit von Thread-Anzahl oder ASLR,
 * SPIR-V-IDs in fester Erzeugungsreihenfolge, Typen und Konstanten dedupliziert in Erstauftrittsreihenfolge,
+  Capabilities nach Enum-Wert und Extensions nach Namen sortiert (unabhängig von der Anforderungsreihenfolge der
+  Absenkung), gleiche Dekorationen nur einmal,
 * feste, versionierte Passlisten (LLVM und `spirv-opt`), LLVM- und SPIRV-Tools-Version stehen im Versionsstring.
 
 Test: zwei Prozesse, verschiedene Thread-Anzahlen, ASLR an → Ausgaben byteweise vergleichen (WP-SC-18). Im Skelett
@@ -649,7 +655,8 @@ gibt es dafür bereits einen Unit-Test für Diagnosen.
 ADR-0007 legt zwei Stufen fest: SPIR-V nach AIR-Hash und `VkPipelineCache` pro GPU. Für die SPIR-V-Stufe gilt:
 
 * **Schlüssel** = Hash (SHA-256 oder BLAKE3, O-SC-4) über:
-  1. `a2s_get_version_string()` (enthält Compiler-, LLVM- und später SPIRV-Tools-Version sowie `AIR2SPIRV_BUILD_ID`),
+  1. `a2s_get_version_string()` (enthält Compiler-, LLVM- und SPIRV-Tools-Version sowie `AIR2SPIRV_BUILD_ID`,
+     z. B. `air2spirv 0.1.0+dev (without llvm, spirv-tools v2025.1 [spirv-tools 2025.1~rc1-1~ubuntu0.24.04.2])`),
   2. das **extrahierte Bitcode** der Funktion (nicht die ganze `.metallib`, damit eine Bibliothek mit vielen
      Funktionen nicht bei jeder Änderung alles ungültig macht) sowie aller gelinkten Module,
   3. den Namen des Einstiegspunkts,
@@ -682,11 +689,13 @@ gelten interne Limits (Größe, Funktions-, Block- und Instruktionszahl, Schacht
 | Ebene | Was | Wo | Status |
 |---|---|---|---|
 | Unit | API-Verträge, struct_size, Sniffer, Wrapper-Bounds, CLI-Exit-Codes, C99-Header | `compiler/air2spirv/tests/` (`air2spirv.<bereich>.<fall>`) | **vorhanden** (55 Tests) |
+| Unit | SPIR-V-Builder (Determinismus, Deduplikation, Kodierung, Fehlbedienung), SPIRV-Tools-Hülle (`spirv-val`/`-dis`/`-as`/`-opt` in-process), absichtlich kaputte Module | `tests/test_spirv_builder.cpp`, `tests/test_spirv_tools.cpp` | **vorhanden** (WP-SC-03) |
+| Unit | FileCheck-artiger Matcher (`CHECK`, `-NEXT`, `-SAME`, `-EMPTY`, `-NOT`, `-DAG`, `{{regex}}`, `[[VAR:regex]]`) | `tests/support/filecheck.*`, `tests/test_filecheck.cpp` | **vorhanden** (WP-SC-03) |
 | Fuzzing | `fuzz_air_sniff` (Bytes → `a2s_compile` + Sniffer-Invarianten) | `compiler/air2spirv/fuzz/` | **vorhanden** |
 | Fuzzing | `fuzz_air_bitcode` (mutierte Fixtures → Parse/Audit/Verifier) | dito | WP-SC-02/07 |
 | Fuzzing | `fuzz_air2spirv_translate`: strukturbewusste IR-Mutation (LLVM `FuzzMutate`), Invariante „jede Ausgabe besteht `spirv-val`, sonst sauberer Fehler“ | dito | ab WP-SC-11 |
 | Property | Zufalls-CFGs → Strukturierer → `spirv-val` + Pfadäquivalenz | Unit-Tests | WP-SC-11 |
-| Golden/Check | Fixture → SPIR-V → `spirv-dis` → FileCheck-artige Muster (`CHECK:`, `CHECK-NOT:`), **`spirv-val` Pflicht** | `tests/fixtures/air/<name>/` + Check-Dateien | ab WP-SC-09 |
+| Golden/Check | Fixture → SPIR-V → `spirv-dis` → FileCheck-artige Muster (`CHECK:`, `CHECK-NOT:`), **`spirv-val` Pflicht** (Hilfsfunktion `a2s_test::check_spirv`, vorhanden) | `tests/fixtures/air/<name>/` + Check-Dateien | ab WP-SC-09 |
 | Ausführung | SPIR-V über `ritsu-gpu-host` auf **Lavapipe** ausführen, Ergebnisse gegen Referenzwerte vom Mac | `tests/gpu/` (G1) | ab WP-SC-09/12 |
 | Hardware | RTX 4050 / Iris Xe (G2) | self-hosted Runner (O-3) | später |
 
@@ -719,7 +728,83 @@ Threadgroup-Speicher), `compute_simd_sum`, `compute_atomics`, `compute_pointer_c
 * `AIR2SPIRV_WITH_LLVM=ON` braucht unter Ubuntu 24.04 `llvm-18-dev` **und** `libzstd-dev` (sonst scheitert
   `LLVMExports.cmake` an `zstd::libzstd_shared`).
 * ASan/UBSan und libFuzzer mit Clang brauchen `libclang-rt-18-dev`. Mit GCC reicht die Standardinstallation.
-* SPIRV-Tools und SPIRV-Headers fehlen in der Umgebung. Sie kommen mit WP-SC-03 (O-SC-4).
+* SPIRV-Headers und SPIRV-Tools sind seit WP-SC-03 **Pflicht** (Ubuntu 24.04: `spirv-headers` + `spirv-tools`, siehe
+  §11.3). Fehlen sie, bricht CMake mit Installationshinweis ab.
+
+### 11.3 SPIR-V-Infrastruktur (WP-SC-03)
+
+**Abhängigkeiten.** SPIRV-Headers und SPIRV-Tools kommen aus den Ubuntu-Paketen `spirv-headers` und `spirv-tools`
+(noble-updates: 1.6.1+1.4.309 bzw. 2025.1~rc1). `spirv-tools` enthält unter Debian/Ubuntu neben den Programmen
+auch Header, statische Bibliotheken und CMake-Configs, ein separates `-dev`-Paket gibt es nicht. Eingebunden werden
+sie über `find_package(... CONFIG)` in [`cmake/Air2SpirvSpirvDeps.cmake`](../../compiler/air2spirv/cmake/Air2SpirvSpirvDeps.cmake).
+Die Datei prüft beim Konfigurieren auch, ob die API reicht (`SPV_ENV_VULKAN_1_4`, Validator-/Optimizer-API,
+`spv::HasResultAndType`). Andere Installationen gehen über `CMAKE_PREFIX_PATH`.
+
+Entscheidungen:
+
+* **Systempakete statt FetchContent/Submodul** (entschieden vom Projektinhaber, O-SC-4 = O-12 in
+  [OPEN-QUESTIONS.md, „Entschieden“](../OPEN-QUESTIONS.md#entschieden)): Sie reichen auf dem CI-Ziel ubuntu-24.04,
+  brauchen kein Netzwerk im Build und kein Vendoring, und sie betreffen nur den Host-Compiler, nicht den
+  macOS-Gast. Der Preis: Die SPIRV-Tools-Version folgt dem Distro-Stand und ist nicht auf einen Commit gepinnt.
+  Für den Cache ist das unkritisch, weil die **Paketidentität** im Versionsstring und damit im Cache-Schlüssel
+  steht. `spvSoftwareVersionString()` allein liefert nur `v2025.1` und unterscheidet z. B. `2025.1~rc1` nicht
+  von `2025.1`. Deshalb ermittelt CMake beim Konfigurieren per `dpkg-query` das Paket und seine Version, die die
+  Bibliothek liefern (`spirv-tools 2025.1~rc1-1~ubuntu0.24.04.2`). Ohne dpkg stehen stattdessen die Build-Details
+  der Bibliothek (`spvSoftwareVersionDetailsString()`: Hash bzw. Build-Datum) im String, oder ein mit
+  `-DAIR2SPIRV_SPIRV_TOOLS_ID=…` gesetzter Wert. Der String wird nie gekürzt. `AIR2SPIRV_BUILD_ID` ist auf
+  1–64 Zeichen aus `[A-Za-z0-9._+-]` begrenzt (CMake-Fehler sonst). Bitgleiche Ausgabe über Maschinen hinweg
+  setzt dieselbe Paketversion voraus. Das zeigt der Versionsstring an.
+* **Pflicht statt Option:** ADR-0007 macht `spirv-val` verbindlich. Ein Build ohne Validator würde diese Garantie
+  still verlieren. Deshalb gibt es keinen Schalter zum Abschalten, nur eine klare CMake-Fehlermeldung.
+
+**Builder** (`src/spirv/module_builder.*`): `ModuleBuilder` erzeugt SPIR-V 1.6 in logischer Layout-Reihenfolge.
+Regeln:
+
+* IDs werden ab 1 in Aufrufreihenfolge vergeben. `begin_function`/`begin_block` mit expliziter ID nehmen nur IDs
+  aus `reserve_id()`, und jede nur einmal.
+* Typen (außer Structs) und Konstanten werden dedupliziert, Konstanten nach Bitmuster (`+0.0` ≠ `-0.0`). Die
+  `ArrayStride` gehört zur Typidentität von Arrays und (optional, für `OpPtrAccessChain`) von Zeigern.
+* `OpTypeForwardPointer` steht für rekursive BDA-Typen zur Verfügung. Existiert der Zeigertyp schon, wirft das
+  Vervollständigen, statt zwei Zeigertypen zu deklarieren.
+* Typen, Konstanten und globale Variablen dürfen auch mitten in einem Funktionsrumpf angefordert werden.
+* `emit()` prüft Ergebnis-Typ und Blockstruktur. Instruktionen der Modulebene lehnt es ab: `OpType*`,
+  Konstanten und Spec-Konstanten, `OpSource*`/`OpString`, Dekorationen, `OpLabel`/`OpFunction*` und `OpVariable`
+  außerhalb der Storage Class `Function`.
+* Fehlbedienung und Grenzüberschreitungen werfen `BuilderError` und werden an der C-ABI zu `A2S_ERROR_INTERNAL`.
+  Dazu zählen die ID-Grenze (0x3FFFFF oder kleiner per `BuilderOptions::max_id_bound`), Opcode > 0xFFFF, mehr als
+  65535 Wörter pro Instruktion und NUL in Literal-Strings.
+* Header-Wort `Generator` ist 0 (erlaubt, „unbekannt“). Eine Khronos-Tool-ID ist noch nicht registriert.
+
+**SPIRV-Tools in-process** (`src/spirv/tools.*`):
+
+| Funktion | Zweck |
+|---|---|
+| `validate` | `spirv-val` für Vulkan 1.3/1.4, optional mit scalar block layout |
+| `disassemble` | `spirv-dis`: Friendly Names, optional mit Header und Einrückung |
+| `assemble` | `spirv-as`, für Tests |
+| `optimize` | `spirv-opt` mit expliziter Passliste. Validiert die Eingabe und zusätzlich die Ausgabe. |
+| `check_generated_module` | Pipeline-Nachbedingung nach §2.6 |
+
+Jeder Aufruf hat seinen eigenen SPIRV-Tools-Kontext und ist damit reentrant (getestet mit 4 Threads).
+
+**Tests.**
+
+* Akzeptanzmodul: GLCompute, `LocalSize 64 1 1`, Push-Constant-Block mit einem `PhysicalStorageBuffer`-Zeiger (BDA)
+  auf `{ uint data[]; }` und `data[gid.x] = gid.x`. Es besteht `spirv-val` für Vulkan 1.3 und 1.4 und ist
+  zweimal erzeugt bytegleich.
+* Vier absichtlich kaputte Varianten werden abgelehnt, die Tests prüfen jeweils die Regel:
+  * ohne `LocalSize`: `VUID-StandaloneSpirv-LocalSize-06426`,
+  * ohne `Aligned`: `VUID-StandaloneSpirv-PhysicalStorageBuffer64-04708`,
+  * ohne `Block` am Push-Constant: `VUID-StandaloneSpirv-PushConstant-06675`,
+  * ohne PSB-Capability: eine Kernregel von SPIR-V ohne Vulkan-VUID. Geprüft wird die Meldung „requires one of
+    these capabilities: PhysicalStorageBufferAddresses“.
+* Matcher-Tests decken alle Direktiven und alle Fehler im Check-Text ab. Dazu gehören: falsch geschriebene oder
+  unbekannte Direktiven, falsche Groß-/Kleinschreibung, fehlender Doppelpunkt und Prefix mit Leerraum. Nicht
+  unterstützte LLVM-Direktiven (`CHECK-COUNT-<n>`, `CHECK-LABEL`) melden einen Fehler. `CHECK-NEXT` folgt der
+  LLVM-Semantik (der erste Treffer nach dem vorigen muss auf der Folgezeile liegen). Bindungen eines `CHECK-DAG`-Laufs
+  sieht ein vorangehendes `CHECK-NOT` nicht.
+
+Stand: 137 ctest-Tests, grün mit GCC 13, Clang 18, ASan/UBSan (GCC und Clang) und mit `AIR2SPIRV_WITH_LLVM=ON`.
 
 ## 12. Work Packages
 
@@ -730,7 +815,7 @@ nötig.
 |---|---|---|---|
 | WP-SC-01 | Skelett, C-ABI, Sniffer, CLI, Tests, Fuzz-Target (= **WP-M0-SC**) | – | **erledigt:** Build mit GCC/Clang/ASan grün, 55 ctest-Tests, Fuzz-Smoke ohne Fund |
 | WP-SC-02 | LLVM festlegen (S-AIR-1), Parse + Verifier, Fehlerabbildung, `fuzz_air_bitcode` (M4) | 01, (04 für S-AIR-1) | Upstream-Clang-Bitcode und Fixtures parsen; kaputtes Bitcode → `MALFORMED`; 30 min Fuzzing ohne Fund; LLVM-Bezug reproduzierbar in CI |
-| WP-SC-03 | SPIR-V-Infrastruktur: SPIRV-Headers/-Tools einbinden, deterministischer Builder, `spirv-val`/`spirv-opt` in-process, `spirv-dis` + FileCheck-artiger Matcher für Tests (M4) | 01 | handgebautes Compute-Modul besteht `spirv-val`, zweimal bytegleich erzeugt; Check-Test-Infrastruktur läuft |
+| WP-SC-03 | SPIR-V-Infrastruktur: SPIRV-Headers/-Tools einbinden, deterministischer Builder, `spirv-val`/`spirv-opt` in-process, `spirv-dis` + FileCheck-artiger Matcher für Tests (M4) | 01 | **erledigt** (§11.3): handgebautes Compute-Modul (BDA) besteht `spirv-val`, zweimal bytegleich erzeugt; kaputte Module abgelehnt; Matcher läuft; 137 ctest-Tests |
 | WP-SC-04 | Fixture-Korpus v1 (Liste §10), Erzeugungsskript, READMEs (M4) | O-2 (Mac) | Fixtures + READMEs eingecheckt, Clean-Room-Review bestanden |
 | WP-SC-05 ★ | **Spezifikation** `.metallib` + AIR-Konventionen (Metadaten, Adressräume, Intrinsics, Function Constants) durch `reverse-engineer`, schwarzer Kasten über eigene Fixtures (M4) | 04 | Spec in `docs/specs/metallib/` mit Konfidenz je Abschnitt |
 | WP-SC-06 | `.metallib`-Container-Parser nach Spec + Fuzz-Target (M4) | 05 | alle Fixtures zerlegt; Bounds-Tests; Fuzz 30 min ohne Fund |
@@ -768,7 +853,7 @@ steuerbare Teil ist **04/05**: Mac-Zugang und Clean-Room-Spezifikation. Deshalb 
 | O-SC-1 | Bindungsmodell (§5): Argument-Tabelle + Bindless oder klassische Descriptor-Sets? | Argument-Tabelle + Bindless | architect + gpu-engineer (ADR) |
 | O-SC-2 | Compiler im Host-Prozess oder im sandboxed Worker (§9)? | Worker, spätestens vor M6 (Q-SEC-1) | architect (ADR) |
 | O-SC-3 | Welche LLVM-Version und wie bezogen: Distro-Paket (lokal 18.1.3) oder selbst gebautes, festgelegtes LLVM (CI-Zeit, Binärgröße)? | Spike S-AIR-1; danach festgelegter eigener Build als CI-Artefakt | shader-compiler-engineer + Mensch (CI-Ressourcen) |
-| O-SC-4 | SPIRV-Tools/-Headers (und Hash-Bibliothek): System-Paket, Git-Submodule oder vendored? FetchContent braucht Netzwerk im Build | Submodule mit festen Commits | Mensch/test-engineer (CI) |
+| O-SC-4 | SPIRV-Tools/-Headers (und Hash-Bibliothek): System-Paket, Git-Submodule oder vendored? FetchContent braucht Netzwerk im Build | **Entschieden** (SPIRV-Tools/-Headers, = O-12 in [OPEN-QUESTIONS.md, „Entschieden“](../OPEN-QUESTIONS.md#entschieden)): Ubuntu-Pakete `spirv-headers`/`spirv-tools` aus noble-updates, kein gepinnter Commit. Bedingung erfüllt: läuft nur im Host-Compiler, keine Auswirkung auf den macOS-Gast. Paketidentität im Cache-Schlüssel (§11.3). Noch offen: nur die Hash-Bibliothek (WP-SC-18). | Mensch (entschieden 2026-10-14); Hash-Bibliothek: shader-compiler-engineer |
 | O-SC-5 | Wer kompiliert die Fixtures auf welchem Mac mit welchem Xcode/SDK (macOS-27-SDK)? | siehe O-2 | Mensch |
 | O-SC-6 | Variante P: Kommt über das Paravirt-Protokoll wirklich AIR an (Annahme in ADR-0005) oder ein anderes Format? | durch S-GPU-1 klären; bestimmt den Scope des Compilers | reverse-engineer |
 | O-SC-7 | Welche Metal-GPU-Familie wird gemeldet, und was folgt daraus für Tile-Shader, Imageblocks und ROGs? | mit gpu-engineer, Abhängigkeit von ADR-0005 | gpu-engineer + architect |
@@ -788,5 +873,7 @@ steuerbare Teil ist **04/05**: Mac-Zugang und Clean-Room-Spezifikation. Deshalb 
   Feature-Meldung statt stiller Fehler.
 * **R-SC-4 LLVM im Host-Prozess** (§9), bis die Sandbox steht.
 * **Schulden im Skelett:** `.metallib` wird nicht erkannt (Spec fehlt). Reflexion und `a2s_binding` sind
-  PROVISIONAL. Keine Hash-/Cache-Schlüssel-Funktion. Fuzz-CI-Job fehlt (gehört dem `test-engineer`). Das Makefile-
-  Ziel `make cpp` liegt außerhalb von `compiler/` und muss bei Bedarf die Optionen §11 übernehmen.
+  PROVISIONAL. Keine Hash-/Cache-Schlüssel-Funktion. Keine feste `spirv-opt`-Passliste (WP-SC-27), `optimize()`
+  nimmt bis dahin eine explizite Liste. Kein registrierter SPIR-V-Generator-Magic (Header-Wort 2 = 0). Fuzz-CI-Job
+  fehlt (gehört dem `test-engineer`). Das Makefile-Ziel `make cpp` liegt außerhalb von `compiler/` und muss bei
+  Bedarf die Optionen §11 übernehmen.

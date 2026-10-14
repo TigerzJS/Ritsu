@@ -824,7 +824,7 @@
      "name": "WP-SC-02",
      "title": "LLVM festlegen, Parse + Verifier, Bitcode-Fuzzing",
      "ms": "M4",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "deps": "01",
      "accept": "",
@@ -836,12 +836,13 @@
      "name": "WP-SC-03",
      "title": "SPIR-V-Infrastruktur, spirv-val in-process",
      "ms": "M4",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "01",
      "accept": "",
      "owner": "shader-compiler-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "SPIR-V-Builder, in-process spirv-val/dis/as/opt, FileCheck-Matcher; Review: 1 major + 8 behoben; 137 Tests."
     },
     {
      "id": "WP-SC-04",

@@ -81,7 +81,7 @@ uint32_t a2s_get_api_version(void) {
 }
 
 const char* a2s_get_version_string(void) {
-    return A2S_VERSION_STRING;
+    return air2spirv::version_string();
 }
 
 const char* a2s_status_to_string(a2s_status status) {

@@ -16,6 +16,13 @@ option(AIR2SPIRV_BUILD_FUZZERS "Build libFuzzer targets (Clang only)" OFF)
 set(AIR2SPIRV_BUILD_ID "dev" CACHE STRING
     "Build identity appended to the version string (part of every shader cache key)")
 
+# The build id goes verbatim into the version string (cache key) and a C string literal.
+string(LENGTH "${AIR2SPIRV_BUILD_ID}" _a2s_build_id_length)
+if(_a2s_build_id_length GREATER 64 OR NOT AIR2SPIRV_BUILD_ID MATCHES "^[A-Za-z0-9._+-]+$")
+    message(FATAL_ERROR "AIR2SPIRV_BUILD_ID must be 1-64 characters from [A-Za-z0-9._+-], "
+        "got '${AIR2SPIRV_BUILD_ID}'")
+endif()
+
 if(PROJECT_IS_TOP_LEVEL AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
@@ -57,13 +64,20 @@ if(AIR2SPIRV_SANITIZE)
     target_link_options(air2spirv_sanitizers INTERFACE ${_a2s_san_flags})
 endif()
 
+# ---- External dependencies ----------------------------------------------------------------------
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(Air2SpirvSpirvDeps) # required: SPIRV-Headers + SPIRV-Tools, target air2spirv_spirv_deps
+
 # ---- Library --------------------------------------------------------------------------------------
 add_library(air2spirv
     src/c_api.cpp
     src/compiler.cpp
     src/diagnostics.cpp
     src/input_sniffer.cpp
-    src/options.cpp)
+    src/options.cpp
+    src/version.cpp
+    src/spirv/module_builder.cpp
+    src/spirv/tools.cpp)
 add_library(air2spirv::air2spirv ALIAS air2spirv)
 
 target_include_directories(air2spirv
@@ -74,8 +88,11 @@ target_include_directories(air2spirv
         ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_compile_features(air2spirv PRIVATE cxx_std_20)
 target_compile_definitions(air2spirv PRIVATE
-    A2S_VERSION="${PROJECT_VERSION}+${AIR2SPIRV_BUILD_ID}")
-target_link_libraries(air2spirv PRIVATE air2spirv_warnings PUBLIC air2spirv_sanitizers)
+    A2S_VERSION="${PROJECT_VERSION}+${AIR2SPIRV_BUILD_ID}"
+    A2S_SPIRV_TOOLS_PACKAGE="${A2S_SPIRV_TOOLS_PACKAGE}")
+target_link_libraries(air2spirv
+    PRIVATE air2spirv_warnings air2spirv_spirv_deps
+    PUBLIC air2spirv_sanitizers)
 set_target_properties(air2spirv PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON

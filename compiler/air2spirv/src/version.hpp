@@ -1,15 +1,13 @@
-// Build identity of the library; part of every shader cache key.
+// Build identity of the library; part of every shader cache key
+// (docs/subsystems/shader-compiler.md §7, §8).
 #pragma once
 
-#ifndef A2S_VERSION
-#error "A2S_VERSION must be defined by the build system"
-#endif
+namespace air2spirv {
 
-#if defined(A2S_HAVE_LLVM) && A2S_HAVE_LLVM
-#include <llvm/Config/llvm-config.h>
-#define A2S_LLVM_DESCRIPTION "llvm " LLVM_VERSION_STRING
-#else
-#define A2S_LLVM_DESCRIPTION "without llvm"
-#endif
+// "air2spirv <version>+<build id> (<llvm description>, spirv-tools <version> [<identity>])",
+// identity = package identity from configure time (e.g. "spirv-tools 2025.1~rc1-1~ubuntu0.24.04.2")
+// or the SPIRV-Tools build details. Includes every component whose behaviour changes the emitted
+// SPIR-V. Built once, never truncated, lives for the whole process; never returns null.
+[[nodiscard]] const char* version_string() noexcept;
 
-#define A2S_VERSION_STRING "air2spirv " A2S_VERSION " (" A2S_LLVM_DESCRIPTION ")"
+} // namespace air2spirv

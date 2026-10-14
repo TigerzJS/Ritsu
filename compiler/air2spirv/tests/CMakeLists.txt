@@ -7,6 +7,18 @@ add_library(a2s_test_harness STATIC test_harness.cpp)
 target_include_directories(a2s_test_harness PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(a2s_test_harness PUBLIC air2spirv_warnings air2spirv_sanitizers)
 
+# FileCheck-style matcher (no dependencies) and SPIR-V test helpers (internal headers, SPIRV-Tools).
+add_library(a2s_filecheck STATIC support/filecheck.cpp)
+target_include_directories(a2s_filecheck PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/support)
+target_link_libraries(a2s_filecheck PUBLIC air2spirv_warnings air2spirv_sanitizers)
+
+add_library(a2s_spirv_test_support STATIC support/spirv_test_modules.cpp)
+target_include_directories(a2s_spirv_test_support PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/support ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(a2s_spirv_test_support PUBLIC
+    air2spirv::air2spirv a2s_filecheck air2spirv_spirv_deps air2spirv_warnings
+    air2spirv_sanitizers)
+
 set(_a2s_test_env
     "ASAN_OPTIONS=detect_leaks=1:abort_on_error=0:strict_string_checks=1"
     "UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1")
@@ -20,6 +32,7 @@ function(a2s_add_test_executable area source)
     target_link_libraries(${target} PRIVATE air2spirv::air2spirv a2s_test_harness ${ARG_LIBS})
     if(ARG_INTERNAL)
         target_include_directories(${target} PRIVATE ${PROJECT_SOURCE_DIR}/src)
+        target_link_libraries(${target} PRIVATE air2spirv_spirv_deps)
     endif()
 
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
@@ -40,6 +53,10 @@ find_package(Threads REQUIRED)
 
 a2s_add_test_executable(container test_container.cpp INTERNAL)
 a2s_add_test_executable(c_api test_c_api.cpp LIBS Threads::Threads)
+a2s_add_test_executable(filecheck test_filecheck.cpp LIBS a2s_filecheck)
+a2s_add_test_executable(spirv_builder test_spirv_builder.cpp INTERNAL LIBS a2s_spirv_test_support)
+a2s_add_test_executable(spirv_tools test_spirv_tools.cpp INTERNAL
+    LIBS a2s_spirv_test_support Threads::Threads)
 
 if(AIR2SPIRV_BUILD_TOOLS AND UNIX)
     a2s_add_test_executable(cli test_cli.cpp)

@@ -94,7 +94,13 @@
    "wp": "WP-ARCH-01",
    "summary": "Sem-Review: trägt mit Änderungen (P1 an WP-DBT-02); ADR-0009 Gastspeicher als Proposed – wartet auf deine Freigabe (O-13)",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-SC-03",
+   "summary": "SPIR-V-Infrastruktur: deterministischer Builder, spirv-val in-process, Test-Matcher ohne stille Fehlerfälle; 137 C++-Tests",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 14:30"
+ "updatedAt": "2026-10-14 14:55"
 }

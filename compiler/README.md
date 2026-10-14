@@ -5,15 +5,26 @@ Vulkan-SPIR-V 1.6. Er ist in C++20 geschrieben und hat eine schmale C-ABI für `
 ([ADR-0003](../docs/adr/0003-languages.md), [ADR-0007](../docs/adr/0007-shader-translation-on-host.md)).
 Das Detaildesign steht in [docs/subsystems/shader-compiler.md](../docs/subsystems/shader-compiler.md).
 
-**Stand (WP-M0-SC):** Das ist ein Skelett. Es gibt die C-API, Argumentprüfung, einen Erkenner für rohes LLVM-Bitcode
-und für den LLVM-Bitcode-Wrapper, ein CLI, Tests und ein Fuzz-Target. Eine echte Übersetzung gibt es noch nicht:
+**Stand (WP-M0-SC, WP-SC-03):** Das ist ein Skelett. Es gibt die C-API, Argumentprüfung, einen Erkenner für rohes
+LLVM-Bitcode und für den LLVM-Bitcode-Wrapper, ein CLI, Tests und ein Fuzz-Target. Dazu kommt die
+SPIR-V-Infrastruktur: ein deterministischer SPIR-V-Builder, SPIRV-Tools (`spirv-val`, `spirv-dis`, `spirv-opt`)
+in-process und ein FileCheck-artiger Matcher für Tests. Eine echte Übersetzung gibt es noch nicht:
 Gültiges Bitcode liefert `A2S_ERROR_UNIMPLEMENTED` mit Diagnose. `.metallib`-Container werden mit
 `A2S_ERROR_UNSUPPORTED` abgelehnt, bis eine Clean-Room-Spezifikation vorliegt
 ([ADR-0008](../docs/adr/0008-clean-room.md)).
 
 ## Bauen und testen
 
-Voraussetzungen: CMake ≥ 3.25, Ninja, GCC ≥ 13 oder Clang ≥ 18. LLVM ist optional und im Skelett standardmäßig aus.
+Voraussetzungen: CMake ≥ 3.25, Ninja, GCC ≥ 13 oder Clang ≥ 18, **SPIRV-Headers und SPIRV-Tools** (Pflicht, weil
+ADR-0007 `spirv-val` verlangt). LLVM ist optional und im Skelett standardmäßig aus.
+
+```bash
+# Ubuntu 24.04 (spirv-tools enthält auch Header, statische Bibliotheken und CMake-Configs)
+sudo apt-get install cmake ninja-build spirv-headers spirv-tools
+```
+
+Fehlt eins der Pakete, bricht CMake mit diesem Hinweis ab. Eine eigene Installation wählt man mit
+`-DCMAKE_PREFIX_PATH=<präfix>` (oder `SPIRV-Headers_DIR`, `SPIRV-Tools_DIR`, `SPIRV-Tools-opt_DIR`).
 
 ```bash
 cmake -S compiler/air2spirv -B build/air2spirv -G Ninja
@@ -29,7 +40,8 @@ ctest --test-dir build/air2spirv --output-on-failure
 | `AIR2SPIRV_BUILD_TESTS` | `ON` (top level) | ctest-Tests `air2spirv.<bereich>.<fall>` |
 | `AIR2SPIRV_BUILD_TOOLS` | `ON` | `air2spirv-cli` |
 | `AIR2SPIRV_BUILD_FUZZERS` | `OFF` | libFuzzer-Targets in `air2spirv/fuzz/` (nur Clang, schaltet `AIR2SPIRV_SANITIZE` ein) |
-| `AIR2SPIRV_BUILD_ID` | `dev` | Build-Kennung im Versionsstring; geht in jeden Shader-Cache-Schlüssel ein |
+| `AIR2SPIRV_BUILD_ID` | `dev` | Build-Kennung im Versionsstring; geht in jeden Shader-Cache-Schlüssel ein (1–64 Zeichen aus `[A-Za-z0-9._+-]`) |
+| `AIR2SPIRV_SPIRV_TOOLS_ID` | leer | Kennung der gelinkten SPIRV-Tools im Versionsstring. Leer: Paket und Version per `dpkg-query`, ohne dpkg die Build-Details der Bibliothek. Für Eigenbauten z. B. `git-<sha>` |
 
 Weitere Varianten:
 
@@ -72,8 +84,11 @@ build/air2spirv/tools/air2spirv-cli/air2spirv-cli <eingabe> -o <ausgabe.spv> [--
 ```
 air2spirv/
   include/air2spirv/air2spirv.h   öffentliche C-ABI (C99-kompatibel, versioniert, struct_size)
+  cmake/                          Air2SpirvSpirvDeps.cmake: SPIRV-Headers/-Tools finden und prüfen
   src/                            Implementierung (Namespace air2spirv), C-ABI-Grenze in c_api.cpp
+  src/spirv/                      deterministischer SPIR-V-Builder, SPIRV-Tools-Hülle (val/dis/as/opt)
   tools/air2spirv-cli/            Kommandozeilenwerkzeug
   tests/                          eigene Mini-Testumgebung ohne externe Abhängigkeiten, C99-Header-Test
+  tests/support/                  FileCheck-artiger Matcher, handgebaute SPIR-V-Testmodule, check_spirv()
   fuzz/                           libFuzzer-Target fuzz_air_sniff + Startkorpus (selbst erzeugt)
 ```
