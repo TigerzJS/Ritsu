@@ -15,5 +15,10 @@ Entscheidungen, die kein Agent treffen darf. Neue Fragen aus Agentenberichten we
 | O-9 | **PAC-Algorithmus** im Gast: echtes QARMA (langsam, exakt) oder schnelle eigene Funktion (Gast braucht nur Selbstkonsistenz)? | Siehe [dbt.md](subsystems/dbt.md) O-DBT-4 | WP-DBT (PAC) |
 | O-10 | Ist die **ABA-Abweichung** der `LDXR/STXR`-Emulation über `CMPXCHG` akzeptabel? | Siehe dbt.md O-DBT-5 | M3 |
 | O-11 | Neue Abhängigkeiten für den DBT: Software-FP (`rustc_apfloat`), x86-Emitter (`iced-x86`/`dynasmrt` oder eigener), BLAKE3 für den Cache | Siehe dbt.md O-DBT-8…10 | M2 |
-| O-12 | **SPIRV-Tools-Bezug:** Ubuntu-Pakete (umgesetzt, einfach) oder fest gepinnter Commit (bitgleiche Shader-Ausgabe auf jeder Maschine)? Der Cache bleibt in beiden Fällen korrekt | Siehe [shader-compiler.md](subsystems/shader-compiler.md) O-SC-4 | – |
 | O-13 | **Freigabe [ADR-0009](adr/0009-shared-guest-ram.md)** (gemeinsamer Gastspeicher: eigenes memfd-basiertes `GuestRam` mit `&self`-Zugriff, `unsafe` nur in `ritsu-mem::host_map`)? | *Empfehlung des Architekten:* Option B annehmen | WP-MEM-01/02, WP-DBT-09, WP-PLAT-10, WP-GPU-11 |
+
+## Entschieden
+
+| ID | Frage | Entscheidung | Datum |
+|---|---|---|---|
+| O-12 | SPIRV-Tools-Bezug | **Ubuntu-Pakete** (`spirv-tools`, `spirv-headers` aus noble-updates). Bedingung des Projektinhabers: darf am macOS-Gast nichts grundlegend ändern. Erfüllt, weil SPIRV-Tools nur im Linux-Host-Compiler läuft. Die Version steht im Shader-Cache-Schlüssel | 2026-10-14 |
