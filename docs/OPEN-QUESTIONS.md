@@ -16,6 +16,7 @@ Entscheidungen, die kein Agent treffen darf. Neue Fragen aus Agentenberichten we
 | O-10 | Ist die **ABA-Abweichung** der `LDXR/STXR`-Emulation über `CMPXCHG` akzeptabel? | Siehe dbt.md O-DBT-5 | M3 |
 | O-11 | Neue Abhängigkeiten für den DBT: Software-FP (`rustc_apfloat`), x86-Emitter (`iced-x86`/`dynasmrt` oder eigener), BLAKE3 für den Cache | Siehe dbt.md O-DBT-8…10 | M2 |
 | O-13 | **Freigabe [ADR-0009](adr/0009-shared-guest-ram.md)** (gemeinsamer Gastspeicher: eigenes memfd-basiertes `GuestRam` mit `&self`-Zugriff, `unsafe` nur in `ritsu-mem::host_map`)? | *Empfehlung des Architekten:* Option B annehmen | WP-MEM-01/02, WP-DBT-09, WP-PLAT-10, WP-GPU-11 |
+| O-14 | **Freigabe [ADR-0010](adr/0010-dbt-platform-boundary.md)** (Schnittstelle DBT ↔ Plattform: Hooks für Systemregister/MMIO, Exit-Run-Loop für HVC/SMC/WFI, atomare Signale für IRQs). Darin bewusst entschieden: Timer-Vergleichsregister liegen in der Plattform, nicht im DBT | *Empfehlung des Architekten:* Option C (Hybrid) annehmen | WP-DBT-07/08, WP-PLAT-06/07/15 |
 
 ## Entschieden
 

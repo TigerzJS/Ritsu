@@ -100,7 +100,13 @@
    "wp": "WP-SC-03",
    "summary": "SPIR-V-Infrastruktur: deterministischer Builder, spirv-val in-process, Test-Matcher ohne stille Fehlerfälle; 137 C++-Tests",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-02",
+   "summary": "ADR-0010 DBT↔Plattform als Proposed (Hybrid: Hooks + Exit-Loop + atomare Signale) – wartet auf deine Freigabe (O-14)",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 14:55"
+ "updatedAt": "2026-10-14 15:20"
 }

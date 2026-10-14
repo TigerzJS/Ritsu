@@ -116,12 +116,13 @@
      "name": "WP-ARCH-02",
      "title": "Schnittstelle DBT↔Plattform: Sysreg-Hooks, HVC/SMC, WFI, IRQ-Kick",
      "ms": "M3",
-     "status": "wip",
+     "status": "blocked",
      "risk": false,
      "deps": "",
      "accept": "",
      "owner": "architect",
-     "weight": 1
+     "weight": 1,
+     "note": "ADR-0010 (Proposed) geschrieben; wartet auf Freigabe durch den Projektinhaber (O-14)."
     },
     {
      "id": "WP-ARCH-03",
@@ -184,6 +185,18 @@
      "owner": "dbt-engineer",
      "weight": 2,
      "note": "wartet auf Freigabe ADR-0009"
+    },
+    {
+     "id": "WP-ARCH-06",
+     "name": "WP-ARCH-06",
+     "title": "Normative Prüfung gegen Arm DDI 0487 (HVC/SMC ohne EL2/EL3, WFI vs. WFE, Device-Retry, Teil-Stores)",
+     "ms": "M3",
+     "status": "wip",
+     "risk": false,
+     "deps": "",
+     "accept": "Zitate mit Abschnitt",
+     "owner": "architect",
+     "weight": 1
     }
    ]
   },

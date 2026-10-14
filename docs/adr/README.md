@@ -22,3 +22,4 @@ Regeln:
 | [0007](0007-shader-translation-on-host.md) | Shader werden auf dem Host von AIR nach SPIR-V übersetzt | Accepted |
 | [0008](0008-clean-room.md) | Reverse Engineering nur im Clean-Room-Verfahren | Accepted |
 | [0009](0009-shared-guest-ram.md) | Gast-RAM wird ein geteiltes memfd-Mapping (`GuestRam`) mit `&self`-Zugriff; `unsafe` nur in `ritsu_mem::host_map` | **Proposed** |
+| [0010](0010-dbt-platform-boundary.md) | DBT und Plattform sind über synchrone vCPU-Hooks (Systemregister, MMIO), einen Exit-basierten Run-Loop (HVC/SMC, WFI, Stopp) und atomare `VcpuSignals` gekoppelt | **Proposed** |

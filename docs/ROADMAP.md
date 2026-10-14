@@ -49,6 +49,7 @@ nicht gegen einen echten Gast.
 | WP-MEM-01 | `GuestMemory` v2 nach ADR-0009 (nach Freigabe O-13) | dbt-engineer | M3 |
 | WP-MEM-02 ★ | `GuestRam` (memfd + `host_map`, unsafe-Kern) nach ADR-0009 | dbt-engineer | M3 |
 | WP-PLAT-21 | virtio-Speicherordnung nach ADR-0009 | platform-engineer | M3 |
+| WP-ARCH-06 | Normative Prüfung offener Architekturregeln gegen Arm DDI 0487 | architect | M3 |
 | WP-ARCH-02 | Schnittstelle DBT ↔ Plattform: Systemregister-Hooks (`MRS`/`MSR` für GIC-ICC), `HVC`/`SMC` (PSCI), `WFI`/`WFE`-Parken, IRQ-Pending-Flag und vCPU-Kick | architect | M3 |
 
 ## Spikes (vor den abhängigen Meilensteinen)
