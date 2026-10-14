@@ -1,5 +1,6 @@
 [toolchain]
-# Pinned for reproducible builds and comparable instruction-count benchmarks
-# (bench/baselines/icount-*.json). Bump deliberately, together with new baselines.
-channel = "1.97.0"
+# Local development follows stable. CI pins the exact compiler via RUSTUP_TOOLCHAIN in
+# .github/workflows/*.yml so instruction-count baselines (bench/baselines/icount-*.json)
+# stay comparable; bump that pin deliberately, together with new baselines.
+channel = "stable"
 components = ["rustfmt", "clippy"]

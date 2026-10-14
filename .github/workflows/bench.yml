@@ -25,6 +25,9 @@ permissions:
   contents: read
 
 env:
+  # Exact compiler for reproducible builds and instruction-count baselines; overrides
+  # rust-toolchain.toml. Bump together with bench/baselines/icount-*.json.
+  RUSTUP_TOOLCHAIN: "1.97.0"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
   BENCH_HOST_ID: ci-x86
@@ -36,7 +39,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: bench
