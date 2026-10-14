@@ -61,5 +61,6 @@ nicht gegen einen echten Gast.
 | S-GPU-2 ★ | Lässt sich im macOS-27-Gast ein eigenes Metal-Device-Bundle laden? | ADR-0005 | gpu-engineer (Prototyp, macOS-SDK nötig) | M4 |
 | S-BOOT-1 ★ | Kann ein eigener Loader den vmapple-Kernelcache ohne Apples `AVPBooter` starten? | ADR-0004-Folge | reverse-engineer + platform-engineer | M3 |
 | S-BOOT-2 ★ | Kann eine macOS-27-IPSW ohne Mac in ein VM-Disk-Image installiert werden (Restore, Personalisierung)? | Installationsweg | reverse-engineer | M5 |
+| S-GPU-18a ★ | Prototyp Tile-Shader/Imageblocks und Interlock-Blending: Kosten auf RTX und Iris (ADR-0011) | WP-GPU-18 | gpu-engineer | M5 |
 | S-PERF-1 | Wie schnell ist ein naiver T1 auf dem i5-12500H, gemessen an User-Mode-Benchmarks? Reicht Cranelift für T2? | ADR-0006-Überprüfung | dbt-engineer | M2 |
 | S-AIR-1 | Welche LLVM-Version liest AIR aus dem macOS-27-SDK fehlerfrei? | air2spirv-LLVM-Pin | shader-compiler-engineer | M4 |

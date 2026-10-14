@@ -153,7 +153,7 @@
      "name": "WP-ARCH-05",
      "title": "ADR Bindungsmodell (Argument-Tabelle + Bindless)",
      "ms": "M4",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "deps": "",
      "accept": "",
@@ -204,12 +204,13 @@
      "name": "WP-ARCH-07",
      "title": "Familienpolitik: Apple7 als Metal-3/4-Untergrenze – welche GPU-Familie muss Ritsu melden?",
      "ms": "M4",
-     "status": "wip",
+     "status": "blocked",
      "risk": true,
      "deps": "",
      "accept": "ADR-Entwurf",
      "owner": "architect",
-     "weight": 2
+     "weight": 2,
+     "note": "ADR-0011 (Proposed) geschrieben; wartet auf Freigabe (O-15)."
     }
    ]
   },
@@ -298,6 +299,18 @@
      "deps": "",
      "accept": "",
      "owner": "reverse-engineer",
+     "weight": 2
+    },
+    {
+     "id": "S-GPU-18a",
+     "name": "S-GPU-18a",
+     "title": "Prototyp Tile-Shader/Imageblocks + Interlock-Blending vor WP-GPU-18",
+     "ms": "M5",
+     "status": "open",
+     "risk": true,
+     "deps": "GPU-03",
+     "accept": "",
+     "owner": "gpu-engineer",
      "weight": 2
     }
    ]
@@ -841,6 +854,19 @@
      "accept": "",
      "owner": "gpu-engineer",
      "weight": 1
+    },
+    {
+     "id": "WP-GPU-25",
+     "name": "WP-GPU-25",
+     "title": "Familientabelle + Profile A7/A7⁻/V/M in caps.rs nach ADR-0011",
+     "ms": "M4",
+     "status": "blocked",
+     "risk": false,
+     "deps": "O-15",
+     "accept": "",
+     "owner": "gpu-engineer",
+     "weight": 1,
+     "note": "wartet auf Freigabe ADR-0011"
     }
    ]
   },

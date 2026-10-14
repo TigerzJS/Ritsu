@@ -124,7 +124,13 @@
    "wp": "WP-GPU-02",
    "summary": "Metal-Objektmodell vollständig und gegen SDK-Werte geprüft; Review fand 4 Fälle, in denen ungültiges Metal angenommen wurde – behoben",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-07",
+   "summary": "ADR-0011 Familienpolitik (Proposed): Ziel Apple7 auf beiden GPUs; Mac2 in macOS 27 deprecated; Iris hat ETC2/ASTC LDR nativ – wartet auf Freigabe (O-15)",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 17:30"
+ "updatedAt": "2026-10-14 17:50"
 }
