@@ -1,0 +1,16 @@
+[package]
+name = "ritsu-vmm"
+description = "Ritsu host process: wires CPU, platform and GPU together."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ritsu-core.workspace = true
+ritsu-platform.workspace = true
+ritsu-gpu-host.workspace = true
+
+[lints]
+workspace = true

@@ -34,9 +34,16 @@ nicht gegen einen echten Gast.
 | WP-M0-DBT | dbt.md + Skelett `ritsu-dbt`/`ritsu-mem` (Decoder-Teilmenge, T0, TLB) | dbt-engineer | in Arbeit |
 | WP-M0-GPU | gpu.md + Skelett `ritsu-gpu-proto`/`ritsu-gpu-host` (Protokoll-Decoder, Handles, Caps) | gpu-engineer | in Arbeit |
 | WP-M0-SC | shader-compiler.md + CMake-Skelett `air2spirv` mit C-ABI | shader-compiler-engineer | in Arbeit |
-| WP-M0-PLAT | platform.md, host-os.md + Skelett `ritsu-platform`/`ritsu-virtio`/`ritsu-vmm` | platform-engineer | in Arbeit |
-| WP-M0-QA | testing.md, Makefile, CI, Prüfskripte | test-engineer | in Arbeit |
+| WP-M0-PLAT | platform.md, host-os.md + Skelett `ritsu-platform`/`ritsu-virtio`/`ritsu-vmm` | platform-engineer | erledigt |
+| WP-M0-QA | testing.md, Makefile, CI, Prüfskripte | test-engineer | erledigt |
 | WP-M0-REV | Gesamt-Review des M0-Stands | code-reviewer | in Arbeit |
+
+## Architektur-Folgearbeiten (aus M0-Berichten)
+
+| WP | Inhalt | Agent | Vor |
+|---|---|---|---|
+| WP-ARCH-01 | `GuestMemory` für gleichzeitigen Zugriff mehrerer vCPU- und Geräte-Threads neu schneiden (`&self` + innere Veränderlichkeit, Speicherordnung für virtio-Ringe, Host-`mmap`-Backend). Neuer ADR, ersetzt die M0-Schnittstelle | architect | M1 |
+| WP-ARCH-02 | Schnittstelle DBT ↔ Plattform: Systemregister-Hooks (`MRS`/`MSR` für GIC-ICC), `HVC`/`SMC` (PSCI), `WFI`/`WFE`-Parken, IRQ-Pending-Flag und vCPU-Kick | architect | M3 |
 
 ## Spikes (vor den abhängigen Meilensteinen)
 
