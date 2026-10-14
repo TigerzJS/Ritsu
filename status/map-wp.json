@@ -153,12 +153,13 @@
      "name": "WP-ARCH-05",
      "title": "ADR Bindungsmodell (Argument-Tabelle + Bindless)",
      "ms": "M4",
-     "status": "wip",
+     "status": "blocked",
      "risk": false,
      "deps": "",
      "accept": "",
      "owner": "architect",
-     "weight": 1
+     "weight": 1,
+     "note": "ADR-0012 (Proposed) geschrieben; wartet auf Freigabe (O-16)."
     },
     {
      "id": "WP-MEM-01",
@@ -306,6 +307,18 @@
      "name": "S-GPU-18a",
      "title": "Prototyp Tile-Shader/Imageblocks + Interlock-Blending vor WP-GPU-18",
      "ms": "M5",
+     "status": "open",
+     "risk": true,
+     "deps": "GPU-03",
+     "accept": "",
+     "owner": "gpu-engineer",
+     "weight": 2
+    },
+    {
+     "id": "S-GPU-BIND-1",
+     "name": "S-GPU-BIND-1",
+     "title": "Bindless-Kosten messen (M-1, M-2, M-4 aus ADR-0012) vor WP-GPU-07",
+     "ms": "M4",
      "status": "open",
      "risk": true,
      "deps": "GPU-03",

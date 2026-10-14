@@ -136,7 +136,13 @@
    "wp": "WP-DBT-02",
    "summary": "Integer-Basis-ISA in T0, 0 Abweichungen gg. LLVM und qemu, T0 schneller als vorher (142,5 Host-Befehle/Gastbefehl)",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-05",
+   "summary": "ADR-0012 Bindungsmodell (Proposed) + Belegbericht R-ARCH-07 – wartet auf Freigabe (O-16)",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 18:40"
+ "updatedAt": "2026-10-14 18:55"
 }

@@ -24,3 +24,4 @@ Regeln:
 | [0009](0009-shared-guest-ram.md) | Gast-RAM wird ein geteiltes memfd-Mapping (`GuestRam`) mit `&self`-Zugriff; `unsafe` nur in `ritsu_mem::host_map` | **Proposed** |
 | [0010](0010-dbt-platform-boundary.md) | DBT und Plattform sind über synchrone vCPU-Hooks (Systemregister, MMIO), einen Exit-basierten Run-Loop (HVC/SMC, WFI, Stopp) und atomare `VcpuSignals` gekoppelt | **Proposed** |
 | [0011](0011-metal-family-policy.md) | Ziel ist auf beiden GPUs genau das Apple7-Bodenprofil (Apple7 + Metal3 + Metal4); davor nur Zwischenprofile aus fester Menge (A7⁻, Paravirt-Abbild V, Bring-up M); nicht gemeldete Features scheitern laut | **Proposed** |
+| [0012](0012-binding-model.md) | Metal-Bindungen laufen über eine Argument-Tabelle im Gerätespeicher und globale Bindless-Heaps; eine SPIR-V-Form, Heaps per Descriptor Indexing (Pflicht) oder `VK_EXT_descriptor_heap` (Option nach Messung) | **Proposed** |
