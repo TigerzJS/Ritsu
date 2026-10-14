@@ -32,7 +32,7 @@ nicht gegen einen echten Gast.
 |---|---|---|---|
 | WP-M0-ARCH | ARCHITECTURE.md, ADR-0001…0008, CLAUDE.md, Agenten, Skills, Prozess-Doku | Orchestrator | erledigt |
 | WP-M0-DBT | dbt.md + Skelett `ritsu-dbt`/`ritsu-mem` (Decoder-Teilmenge, T0, TLB) | dbt-engineer | in Arbeit |
-| WP-M0-GPU | gpu.md + Skelett `ritsu-gpu-proto`/`ritsu-gpu-host` (Protokoll-Decoder, Handles, Caps) | gpu-engineer | in Arbeit |
+| WP-M0-GPU | gpu.md + Skelett `ritsu-gpu-proto`/`ritsu-gpu-host` (Protokoll-Decoder, Handles, Caps) | gpu-engineer | erledigt |
 | WP-M0-SC | shader-compiler.md + CMake-Skelett `air2spirv` mit C-ABI | shader-compiler-engineer | in Arbeit |
 | WP-M0-PLAT | platform.md, host-os.md + Skelett `ritsu-platform`/`ritsu-virtio`/`ritsu-vmm` | platform-engineer | erledigt |
 | WP-M0-QA | testing.md, Makefile, CI, Prüfskripte | test-engineer | erledigt |
