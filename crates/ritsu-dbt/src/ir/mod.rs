@@ -18,11 +18,11 @@ mod builder;
 #[cfg(test)]
 mod tests;
 
-pub use builder::Builder;
+pub use builder::{Builder, RuleViolation, RuleViolationKind};
 
-use crate::cpu::GpReg;
+use crate::cpu::{GpReg, SysReg};
 use crate::decode::Cond;
-use crate::sem::{BinOp, BranchKind, CmpOp, Exception, Ty};
+use crate::sem::{BinOp, BranchKind, CmpOp, Exception, MemAttrs, Ty, UnOp};
 use core::fmt;
 
 /// Type of an IR value (dbt.md §4.1).
@@ -139,6 +139,18 @@ pub enum Op {
         /// Value of type `Flags`.
         flags: Value,
     },
+    /// `Sem::sysreg`. Result: `I64`.
+    GetSysreg {
+        /// Register.
+        reg: SysReg,
+    },
+    /// `Sem::set_sysreg`. No result.
+    SetSysreg {
+        /// Register.
+        reg: SysReg,
+        /// Value (`I64`).
+        value: Value,
+    },
     /// `Sem::add_with_carry`. Results: `ty`, `Flags`.
     AddWithCarry {
         /// Width.
@@ -149,6 +161,48 @@ pub enum Op {
         b: Value,
         /// Carry in (`I1`).
         carry_in: Value,
+    },
+    /// `Sem::sub_with_carry`. Results: `ty`, `Flags`.
+    SubWithCarry {
+        /// Width.
+        ty: Ty,
+        /// Minuend (`ty`).
+        a: Value,
+        /// Subtrahend (`ty`).
+        b: Value,
+        /// Carry in (`I1`, 1 = no borrow).
+        carry_in: Value,
+    },
+    /// `Sem::flags_logic`. Result: `Flags`.
+    FlagsLogic {
+        /// Width.
+        ty: Ty,
+        /// The logical result (`ty`).
+        a: Value,
+    },
+    /// `Sem::flag_c`. Result: `I1`.
+    FlagC {
+        /// Flags.
+        flags: Value,
+    },
+    /// `Sem::select_flags`. Result: `Flags`.
+    SelectFlags {
+        /// Condition (`I1`).
+        cond: Value,
+        /// Flags if `cond == 1`.
+        a: Value,
+        /// Flags if `cond == 0`.
+        b: Value,
+    },
+    /// `Sem::flags_to_bits`. Result: `I64`.
+    FlagsToBits {
+        /// Flags.
+        flags: Value,
+    },
+    /// `Sem::bits_to_flags`. Result: `Flags`.
+    BitsToFlags {
+        /// `I64` in `NZCV` layout.
+        a: Value,
     },
     /// `Sem::binop`. Result: `ty`.
     Binary {
@@ -161,11 +215,40 @@ pub enum Op {
         /// Second operand (`ty`).
         b: Value,
     },
+    /// `Sem::unop`. Result: `ty`.
+    Unary {
+        /// Operation.
+        op: UnOp,
+        /// Width.
+        ty: Ty,
+        /// Operand (`ty`).
+        a: Value,
+    },
     /// `Sem::not`. Result: `ty`.
     Not {
         /// Width.
         ty: Ty,
         /// Operand (`ty`).
+        a: Value,
+    },
+    /// `Sem::zext` (`signed == false`) or `Sem::sext`. Result: `to`.
+    Ext {
+        /// Sign- or zero-extension.
+        signed: bool,
+        /// Operand type (not wider than `to`).
+        from: Ty,
+        /// Result type.
+        to: Ty,
+        /// Operand (`from`).
+        a: Value,
+    },
+    /// `Sem::trunc`. Result: `to`.
+    Trunc {
+        /// Operand type (not narrower than `to`).
+        from: Ty,
+        /// Result type.
+        to: Ty,
+        /// Operand (`from`).
         a: Value,
     },
     /// `Sem::icmp`. Result: `I1`.
@@ -197,9 +280,89 @@ pub enum Op {
         /// Flags (`Flags`).
         flags: Value,
     },
+    /// `Sem::load`. Result: `ty`. May raise a data abort.
+    Load {
+        /// Access type.
+        ty: Ty,
+        /// Constant attributes.
+        attrs: MemAttrs,
+        /// Virtual address (`I64`).
+        addr: Value,
+    },
+    /// `Sem::store`. No result. May raise a data abort.
+    Store {
+        /// Access type.
+        ty: Ty,
+        /// Constant attributes.
+        attrs: MemAttrs,
+        /// Virtual address (`I64`).
+        addr: Value,
+        /// Value (`ty`).
+        value: Value,
+    },
+    /// `Sem::probe`. No result. May raise a data abort.
+    Probe {
+        /// Element type.
+        ty: Ty,
+        /// Number of consecutive elements.
+        count: u8,
+        /// Constant attributes.
+        attrs: MemAttrs,
+        /// Virtual address (`I64`).
+        addr: Value,
+    },
+}
+
+/// Side-effect classes of an [`Op`] (dbt.md §4.2, R-DBT-01 P2-5): what state promotion,
+/// dead-code elimination and load/store elimination must respect.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Effects {
+    /// Reads guest registers/flags/system registers.
+    pub reads_state: bool,
+    /// Writes guest registers/flags/system registers.
+    pub writes_state: bool,
+    /// Reads guest memory.
+    pub reads_mem: bool,
+    /// Writes guest memory.
+    pub writes_mem: bool,
+    /// May leave the region with an exception (data abort).
+    pub may_raise: bool,
 }
 
 impl Op {
+    /// The side effects of this operation; all-false means pure.
+    #[must_use]
+    pub fn effects(&self) -> Effects {
+        let none = Effects::default();
+        match self {
+            Self::GetGpr { .. } | Self::GetNzcv | Self::GetSysreg { .. } => Effects {
+                reads_state: true,
+                ..none
+            },
+            Self::SetGpr { .. } | Self::SetNzcv { .. } | Self::SetSysreg { .. } => Effects {
+                writes_state: true,
+                ..none
+            },
+            Self::Load { .. } => Effects {
+                reads_mem: true,
+                may_raise: true,
+                ..none
+            },
+            Self::Store { .. } => Effects {
+                writes_mem: true,
+                may_raise: true,
+                ..none
+            },
+            // A probe neither reads nor writes guest-visible memory, but it must stay
+            // before the stores it covers.
+            Self::Probe { .. } => Effects {
+                may_raise: true,
+                ..none
+            },
+            _ => none,
+        }
+    }
+
     /// Types of the results (at most two).
     #[must_use]
     pub fn result_types(&self) -> [Option<Type>; 2] {
@@ -207,28 +370,55 @@ impl Op {
             Self::Iconst { ty, .. }
             | Self::GetGpr { ty, .. }
             | Self::Binary { ty, .. }
+            | Self::Unary { ty, .. }
             | Self::Not { ty, .. }
-            | Self::Select { ty, .. } => [Some(ty.into()), None],
-            Self::PcRel { .. } => [Some(Type::I64), None],
-            Self::GetNzcv => [Some(Type::Flags), None],
-            Self::AddWithCarry { ty, .. } => [Some(ty.into()), Some(Type::Flags)],
-            Self::Icmp { .. } | Self::CondHolds { .. } => [Some(Type::I1), None],
-            Self::SetGpr { .. } | Self::SetNzcv { .. } => [None, None],
+            | Self::Select { ty, .. }
+            | Self::Load { ty, .. } => [Some(ty.into()), None],
+            Self::Ext { to, .. } | Self::Trunc { to, .. } => [Some(to.into()), None],
+            Self::PcRel { .. } | Self::GetSysreg { .. } | Self::FlagsToBits { .. } => {
+                [Some(Type::I64), None]
+            }
+            Self::GetNzcv
+            | Self::FlagsLogic { .. }
+            | Self::SelectFlags { .. }
+            | Self::BitsToFlags { .. } => [Some(Type::Flags), None],
+            Self::AddWithCarry { ty, .. } | Self::SubWithCarry { ty, .. } => {
+                [Some(ty.into()), Some(Type::Flags)]
+            }
+            Self::Icmp { .. } | Self::CondHolds { .. } | Self::FlagC { .. } => {
+                [Some(Type::I1), None]
+            }
+            Self::SetGpr { .. }
+            | Self::SetNzcv { .. }
+            | Self::SetSysreg { .. }
+            | Self::Store { .. }
+            | Self::Probe { .. } => [None, None],
         }
     }
 
     /// Operands with the type each must have (at most three).
     #[must_use]
     pub fn operands(&self) -> [Option<(Value, Type)>; 3] {
+        let one = |v: Value, t: Type| [Some((v, t)), None, None];
         match *self {
-            Self::Iconst { .. } | Self::PcRel { .. } | Self::GetGpr { .. } | Self::GetNzcv => {
-                [None, None, None]
+            Self::Iconst { .. }
+            | Self::PcRel { .. }
+            | Self::GetGpr { .. }
+            | Self::GetNzcv
+            | Self::GetSysreg { .. } => [None, None, None],
+            Self::SetGpr { ty, value, .. } => one(value, ty.into()),
+            Self::SetSysreg { value, .. } => one(value, Type::I64),
+            Self::SetNzcv { flags }
+            | Self::CondHolds { flags, .. }
+            | Self::FlagC { flags }
+            | Self::FlagsToBits { flags } => one(flags, Type::Flags),
+            Self::BitsToFlags { a } => one(a, Type::I64),
+            Self::FlagsLogic { ty, a } | Self::Not { ty, a } | Self::Unary { ty, a, .. } => {
+                one(a, ty.into())
             }
-            Self::SetGpr { ty, value, .. } => [Some((value, ty.into())), None, None],
-            Self::SetNzcv { flags } | Self::CondHolds { flags, .. } => {
-                [Some((flags, Type::Flags)), None, None]
-            }
-            Self::AddWithCarry { ty, a, b, carry_in } => [
+            Self::Ext { from, a, .. } | Self::Trunc { from, a, .. } => one(a, from.into()),
+            Self::AddWithCarry { ty, a, b, carry_in }
+            | Self::SubWithCarry { ty, a, b, carry_in } => [
                 Some((a, ty.into())),
                 Some((b, ty.into())),
                 Some((carry_in, Type::I1)),
@@ -236,12 +426,29 @@ impl Op {
             Self::Binary { ty, a, b, .. } | Self::Icmp { ty, a, b, .. } => {
                 [Some((a, ty.into())), Some((b, ty.into())), None]
             }
-            Self::Not { ty, a } => [Some((a, ty.into())), None, None],
             Self::Select { ty, cond, a, b } => [
                 Some((cond, Type::I1)),
                 Some((a, ty.into())),
                 Some((b, ty.into())),
             ],
+            Self::SelectFlags { cond, a, b } => [
+                Some((cond, Type::I1)),
+                Some((a, Type::Flags)),
+                Some((b, Type::Flags)),
+            ],
+            Self::Load { addr, .. } | Self::Probe { addr, .. } => one(addr, Type::I64),
+            Self::Store {
+                ty, addr, value, ..
+            } => [Some((addr, Type::I64)), Some((value, ty.into())), None],
+        }
+    }
+
+    /// Whether a width conversion goes in its declared direction.
+    fn conversion_ok(&self) -> bool {
+        match *self {
+            Self::Ext { from, to, .. } => from.bits() <= to.bits(),
+            Self::Trunc { from, to, .. } => from.bits() >= to.bits(),
+            _ => true,
         }
     }
 }
@@ -423,6 +630,9 @@ pub enum VerifyError {
     /// A value is defined more than once, or a result slot does not match the op.
     #[error("{0} is defined more than once or by a mismatching result slot")]
     BadDefinition(Value),
+    /// An `Ext` widens to a narrower type or a `Trunc` narrows to a wider one.
+    #[error("{0}: width conversion in the wrong direction")]
+    BadConversion(Block),
 }
 
 impl Region {
@@ -505,6 +715,9 @@ impl Region {
                     && imm & !ty.mask() != 0
                 {
                     return Err(VerifyError::NonCanonicalConst { block, ty, imm });
+                }
+                if !inst.op.conversion_ok() {
+                    return Err(VerifyError::BadConversion(block));
                 }
                 let site = Site {
                     block: b,

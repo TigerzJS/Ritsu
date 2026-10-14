@@ -130,7 +130,13 @@
    "wp": "WP-ARCH-07",
    "summary": "ADR-0011 Familienpolitik (Proposed): Ziel Apple7 auf beiden GPUs; Mac2 in macOS 27 deprecated; Iris hat ETC2/ASTC LDR nativ – wartet auf Freigabe (O-15)",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-DBT-02",
+   "summary": "Integer-Basis-ISA in T0, 0 Abweichungen gg. LLVM und qemu, T0 schneller als vorher (142,5 Host-Befehle/Gastbefehl)",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 17:50"
+ "updatedAt": "2026-10-14 18:40"
 }

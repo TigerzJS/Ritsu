@@ -16,6 +16,7 @@
 //! * Translated code is position independent with respect to the host (helpers are
 //!   called through a table reachable from the CPU-state pointer).
 
+use crate::cpu::{CpuState, ExceptionLevel};
 use crate::interp::ExecError;
 use ritsu_core::{GuestPhysAddr, GuestVirtAddr};
 
@@ -32,12 +33,55 @@ pub enum Tier {
 
 /// The vCPU state a translation is specialised on (besides the code bytes).
 ///
-/// Planned bits (WP-DBT-07/-08): current EL, `PSTATE.SP`, stage-1 MMU on/off,
-/// `TBI0/TBI1`, PAC enable bits from `SCTLR_EL1.{EnIA,EnIB,EnDA,EnDB}`, `PSTATE.PAN`,
-/// alignment-check enable, FP access enabled (`CPACR_EL1.FPEN`), single-step. A change
-/// of any of these selects different translations instead of invalidating.
+/// It is also the source of the semantic layer's translation context
+/// ([`crate::sem::Ctx`], R-DBT-01 P1-1): [`TbFlags::from_state`] is the **only**
+/// function that derives these bits from a [`CpuState`], for T0 as well as for T1/T2
+/// block keys. A change of any of these bits selects different translations instead
+/// of invalidating, and every guest write that changes one of them ends the block.
+///
+/// Bits defined so far (WP-DBT-02) are the associated constants. Planned (WP-DBT-06/-07):
+/// `PSTATE.SP`, stage-1 MMU on/off, `TBI0/TBI1`, `SCTLR_EL1.{EnDA,EnDB}`, `PSTATE.PAN`,
+/// FP access enabled (`CPACR_EL1.FPEN`), single-step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub struct TbFlags(pub u32);
+
+impl TbFlags {
+    /// `PSTATE.EL == 1`.
+    pub const EL1: u32 = 1 << 0;
+    /// SP alignment check active at the current EL (`SCTLR_EL1.SA` at EL1, `SA0` at
+    /// EL0).
+    pub const SP_ALIGN: u32 = 1 << 1;
+    /// Alignment check of normal accesses (`SCTLR_EL1.A`).
+    pub const ALIGN: u32 = 1 << 2;
+    /// `SCTLR_EL1.EnIA`.
+    pub const PAC_IA: u32 = 1 << 3;
+    /// `SCTLR_EL1.EnIB`.
+    pub const PAC_IB: u32 = 1 << 4;
+
+    /// `SCTLR_EL1` bit positions used here (Arm ARM, `SCTLR_EL1`).
+    const SCTLR_A: u64 = 1 << 1;
+    const SCTLR_SA: u64 = 1 << 3;
+    const SCTLR_SA0: u64 = 1 << 4;
+    const SCTLR_ENIB: u64 = 1 << 30;
+    const SCTLR_ENIA: u64 = 1 << 31;
+
+    /// The flags of the current state of `cpu`.
+    #[must_use]
+    #[inline]
+    pub fn from_state(cpu: &CpuState) -> Self {
+        let sctlr = cpu.sys.sctlr_el1;
+        let el1 = cpu.el == ExceptionLevel::El1;
+        let sp_align_bit = if el1 { Self::SCTLR_SA } else { Self::SCTLR_SA0 };
+        let bit = |on: bool, flag: u32| if on { flag } else { 0 };
+        Self(
+            bit(el1, Self::EL1)
+                | bit(sctlr & sp_align_bit != 0, Self::SP_ALIGN)
+                | bit(sctlr & Self::SCTLR_A != 0, Self::ALIGN)
+                | bit(sctlr & Self::SCTLR_ENIA != 0, Self::PAC_IA)
+                | bit(sctlr & Self::SCTLR_ENIB != 0, Self::PAC_IB),
+        )
+    }
+}
 
 /// Lookup key of a translated block or region entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

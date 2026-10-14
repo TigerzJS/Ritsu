@@ -168,46 +168,99 @@ Damit ist jede Beschreibung für alle drei Backends gleich gültig.
    "150 Operationen × 3".
 3. **Differenztests** T0 ↔ T1 ↔ T2 ↔ Referenz-Hardware auf Befehlsebene (§16).
 
-### 3.2.1 Umsetzung (WP-DBT-01)
+### 3.2.1 Umsetzung (WP-DBT-01, erweitert in WP-DBT-02)
 
 Code: `crates/ritsu-dbt/src/sem/`. Die Beschreibungen stehen in `sem/a64.rs` (`sem::lower(s, inst)` verteilt
 ein `Inst` auf seine Beschreibung), die Pseudocode-Primitive (`AddWithCarry`, `ConditionHolds`, Shifts mit
-`ShiftReg`-Semantik, Vergleiche) in `sem/prim.rs`, das T0-Backend in `sem/concrete.rs`, das T2-Backend in
-`ir/builder.rs`. `interp.rs` enthält nur noch Fetch und Dispatch.
+`ShiftReg`-Semantik, Division nach Arm-Regeln, Vergleiche) in `sem/prim.rs`, das T0-Backend in `sem/concrete.rs`,
+das T2-Backend in `ir/builder.rs`. `interp.rs` enthält nur Fetch und Dispatch. Die Form wurde vom architect
+geprüft ([R-DBT-01](../research/R-DBT-01-sem-review.md), Urteil „trägt mit Änderungen“); die P1-Punkte sind mit
+WP-DBT-02 umgesetzt.
 
-| Gruppe | `Sem`-Operationen (Stand WP-DBT-01) |
+| Gruppe | `Sem`-Operationen (Stand WP-DBT-02) |
 |---|---|
+| Kontext | `ctx() -> Ctx` (Übersetzungskontext, siehe unten) |
 | Konstanten/PC | `imm(ty, v)`, `pc_rel(offset)` |
-| Gast-Zustand | `gpr(r, ty)`, `set_gpr(r, ty, v)`, `nzcv()`, `set_nzcv(f)` |
-| Integer | `add_with_carry(ty, a, b, cin) -> (V, F)`, `binop(op, ty, a, b)` mit `op ∈ {Add, Sub, And, Or, Xor, Shl, Lshr, Ashr, Ror}`, `not`, `icmp(cc, ty, a, b)` (Cranelift-`IntCC`-Satz), `select`, `cond_holds(cond, f)` |
-| Kontrolle | `branch(Option<cond>, offset, kind)`, `branch_indirect(target, kind)`, `raise(exception)` |
+| Gast-Zustand | `gpr(r, ty)`, `set_gpr(r, ty, v)`, `nzcv()`, `set_nzcv(f)`, `sysreg(r)`, `set_sysreg(r, v)` (`NZCV`, `FPCR`, `FPSR`, `TPIDR_EL0`) |
+| Flags | `add_with_carry`, `sub_with_carry` (≡ `AddWithCarry(a, NOT b, cin)`, R-DBT-01 P2-1), `flags_logic(ty, r)` (`ANDS`: C = V = 0), `flag_c(f)`, `select_flags(c, a, b)`, `flags_to_bits(f)`, `bits_to_flags(v)` |
+| Integer | `binop(op, ty, a, b)` mit `op ∈ {Add, Sub, And, Or, Xor, Shl, Lshr, Ashr, Ror, Mul, UMulHi, SMulHi, UDiv, SDiv}`, `unop(op, ty, a)` mit `op ∈ {Clz, Rbit, Bswap}`, `not`, `zext/sext/trunc(from, to, v)` (P1-5), `icmp(cc, ty, a, b)` (Cranelift-`IntCC`-Satz), `select`, `cond_holds(cond, f)` |
+| Speicher | `load(ty, addr, MemAttrs)`, `store(ty, addr, v, MemAttrs)`, `probe(ty, count, addr, MemAttrs)` (P1-2) |
+| Kontrolle | `branch(Option<cond>, offset, kind)`, `branch_indirect(target, kind)`, `raise(exception)`, `raise_if(cond, exception)` (P1-3) |
 
-Abweichungen von der Skizze oben, jeweils mit Grund:
+`UDiv/SDiv` haben Arm-Semantik (`x / 0 = 0`, `MIN / -1 = MIN`); T1/T2 brauchen dafür einen Wächter, weil
+x86 `DIV/IDIV` in beiden Fällen `#DE` auslöst. `CLS`, `REV16` und `REV32` sind keine eigenen Operationen, sondern
+in der Beschreibung aus `Clz`/`Bswap`/Shifts zusammengesetzt (weniger Konformanzfläche).
+
+**Übersetzungskontext `Ctx` (P1-1).** Rust-Kontrollfluss in Beschreibungen ist erlaubt über Decode-Zeit-Konstanten
+(`Inst`) **und** über `Ctx`, eine dekodierte Sicht auf `TbFlags` (`tier.rs`). `TbFlags::from_state(&CpuState)` ist
+die **einzige** Funktion, die diese Bits aus dem Zustand bildet; T0 ruft sie bei Bedarf auf (`Concrete::ctx`),
+T1/T2 nehmen den Wert aus dem Blockschlüssel. Inhalt (WP-DBT-02): EL, SP-Alignment-Prüfung (`SCTLR_EL1.SA` an EL1,
+`SA0` an EL0), Alignment-Prüfung (`SCTLR_EL1.A`), Schlüsselfreigaben `EnIA/EnIB`. Invariante: Jeder Write auf ein
+Feld, das in `Ctx` eingeht, beendet den Block (§10.1).
+
+**Speicheroperationen und Fault-Modell (P1-2).** Die Beschreibung berechnet nur die Adresse. `MemAttrs` enthält nur
+Konstanten: `unprivileged` (`LDTR/STTR`), `order` (`Plain`; `Acquire/AcquirePc/Release` für WP-DBT-09
+reserviert), `align` (`Normal` = nur mit `SCTLR_EL1.A`, `Required` für Exclusives/Atomics) und das ESR-Syndrom
+`iss` (`SRT`, `SSE`, `SF`; nur für Einzelregister-Formen ohne Writeback). Übersetzung, Privileg (EL0 bei EL0 oder
+`unprivileged`), Alignment-Prüfung, Aufteilung an 4-KiB-Grenzen und der Data Abort (`ExecError::DataAbort` mit VA,
+WnR, Größe, Fehlerart, Syndrom) liegen im Backend. Sign-Extension ist kein Ladeattribut, sondern ein `sext` nach
+dem `load`.
+
+**Reihenfolge-Regeln.** (1) Alles, was raisen kann (`raise`, `raise_if`, `load`, `store`, `probe`), steht vor dem
+ersten Register-, Flag- oder Systemregister-Write. (2) Höchstens ein Kontrolltransfer (`branch`, `branch_indirect`,
+`raise`), als letzte Operation; `raise_if` ist kein Kontrolltransfer. (3) **Mehrfach-Stores:** Ein Befehl mit mehr
+als einem Store ruft vorher `probe` für den ganzen Zielbereich auf; nach dem ersten Store folgen nur noch Stores
+(keine Loads, kein `raise_if`). So hinterlässt ein fehlschlagender Befehl weder Register- noch Speicheränderungen.
+(4) `F`-Werte überleben keine Befehlsgrenze (T1 darf sie in `EFLAGS` halten).
+
+*Einordnung von Regel 3:* Nach Arm DDI 0487 `R_TNVSL` (D1-7214) dürfen bei einem Fault in einem Befehl mit mehreren
+Speicherzugriffen Teile bereits geschrieben sein, für Normal- und Device-Speicher
+([R-ARCH-06](../research/R-ARCH-06-ddi0487.md)). Architektonisch nötig ist also nur: Register-Writes erst nach dem
+letzten Speicherzugriff. Die `probe`-Regel ist strenger und bleibt trotzdem gewählt, weil sie in T0 nichts kostet
+(nur `STP/STNP` proben, der Messpunkt `icount_t0_*` liegt unter dem Stand vor WP-DBT-02) und Differenztests
+gegen Hardware vereinfacht (kein „Teil geschrieben“-Zustand). Die endgültige Wahl für T1 fällt per Messung in
+WP-DBT-12; die gelockerte Regel wäre ebenfalls korrekt.
+
+**Statische Regelprüfung (P1-4).** `ir::Builder` protokolliert pro Befehl Verstöße gegen die Regeln
+(`RuleViolation`: Operation nach Kontrolltransfer, Raise nach Write, Store nach Write, zweiter Store ohne `probe`).
+Weil datenabhängige Wahl nur über `select` läuft, enthält die IR eines Befehls alle Pfade; der Test
+`every_description_obeys_the_rules_statically` senkt Zufallswörter jeder Klasse in allen 32 Kontextkombinationen ab
+und verlangt null Verstöße und eine verifizierende Region. `Concrete` prüft dieselben Regeln in Debug-Builds auf
+den ausgeführten Pfaden; im Release-Build fehlt diese Buchführung ganz (sie hätte jeden Befehl verteuert).
+
+Weitere Abweichungen von der Skizze in §3.2, jeweils mit Grund:
 
 * **PC nur relativ** (`pc_rel`, `branch` mit Offset): Beschreibungen sehen nie die absolute PC. T1/T2 können so
   positionsunabhängigen Code erzeugen (§14); in der IR sind alle Adressen relativ zum Regionseinstieg.
 * **`Ty` umfasst nur skalare Integer bis 64 Bit** (`I1, I8, I16, I32, I64`), Werte in kanonischer Form (Bits
   oberhalb der Breite sind 0). 128-Bit- und Vektorwerte bekommen in WP-DBT-10 einen eigenen assoziierten
-  Werttyp, damit T0-Integercode nicht mit `u128` rechnet.
+  Werttyp (R-DBT-01 P3-1).
 * **`BranchKind` (`Jump`, `Call`, `Return`)** ist nur ein Hinweis für Vorhersagestrukturen (Return-Stack, §5.2)
   und ändert nie die Architekturwirkung.
-* **Reihenfolge-Regeln** statt Transaktionen: Alles, was eine Exception auslösen kann, kommt vor dem ersten
-  Architektur-Schreibzugriff; höchstens ein Kontrolltransfer pro Befehl, als letzte Operation. Debug-Builds von
-  `Concrete` prüfen beides.
 * **Typgleichheit** (jeder Wert wird mit dem Typ benutzt, mit dem er erzeugt wurde) prüft exakt nur der
-  IR-Verifier. Deshalb braucht **jede Beschreibung einen Test, der sie über `ir::Builder` absenkt und
-  verifiziert** (für alle M0-Befehle in `ir/tests.rs` vorhanden). Debug-Builds von `Concrete` prüfen nur, ob ein
-  Operand für den verbrauchenden Typ kanonisch ist. Das fängt einen zu breiten Wert mit gesetzten hohen Bits ab,
-  aber keinen zu schmalen. Ein Typ-Tag in `Concrete` hätte die Wertdarstellung zwischen Debug und Release
-  verschieden gemacht, ohne mehr abzudecken als der Verifier.
-* Speicher- und Systemregister-Operationen (`load`, `store`, `MemAttrs`, …) kommen mit WP-DBT-02/-06/-07 dazu.
+  IR-Verifier (dazu die Richtung von `Ext/Trunc`). Deshalb braucht **jede Beschreibung einen Test, der sie über
+  `ir::Builder` absenkt und verifiziert** (`ir/tests.rs`, alle Klassen). Debug-Builds von `Concrete` prüfen nur, ob
+  ein Operand für den verbrauchenden Typ kanonisch ist.
+* **IR-Effektklassen** (R-DBT-01 P2-5, Teil): `Op::effects()` liefert `reads_state`, `writes_state`, `reads_mem`,
+  `writes_mem`, `may_raise`. `raise_if` wird in der IR wie ein bedingter Sprung zu einem `Exit::Raise`-Block
+  abgebildet.
+* **Speicherschnittstelle für T0:** `Concrete` greift über den schmalen Trait `mem::DataBus` zu (eine Seite
+  übersetzen, lesen, Write proben, schreiben). Implementierungen: `MemBus` (lesen/schreiben, nur für `PlainRam`),
+  `ReadOnlyBus` (`step` mit `&GuestMemory`: Writes sind Bus-Fehler), `NoMemory`. Bei ADR-0009 (`GuestMemory` v2 mit
+  `&self`, `load/store` mit Ordnung, CAS, `HostRange`) ändern sich nur diese Implementierungen, keine Beschreibung.
+  `Concrete` ist generisch über den Bus (monomorphisiert, kein indirekter Aufruf pro Zugriff; `dyn DataBus` geht
+  auch). Der Write-Probe von `MemBus` *liest* den Bereich; das ist nur für Speicher ohne Lese-Seiteneffekte zulässig
+  (DDI 0487 B2.10.2: Device-Zugriffe nicht wiederholen, R-ARCH-06) und deshalb per Marker-Trait `PlainRam`
+  (implementiert für `RamRegion`) auf Typebene abgesichert. Sobald MMIO über Loads/Stores erreichbar ist, ersetzt
+  ADR-0009 §9 (`region_attrs`) den Lese-Probe.
 
 Prüfung: Operations-Konformanztests (`sem/conformance.rs`) prüfen jede Operation des `Concrete`-Backends über das
 Trait gegen unabhängig formulierte Orakel (128-Bit-Arithmetik, Bit-für-Bit-Schleifen, ausgeschriebene
-Bedingungstabelle), über alle Typen, Rand- und Zufallswerte. `ir/tests.rs` baut für jedes M0-Befehlswort eine
-Region, verifiziert sie und spielt sie auf `Concrete` zurück; Zustand und Fehler müssen exakt T0 entsprechen
-(auch für einen ganzen Schleifenblock). Stichprobenhafte Mutationen in Primitiven, Beschreibungen und Builder
-wurden von diesen Tests erkannt.
+Bedingungstabelle, Byte-Orakel für Speicher, eigene Test-MMU mit Fault-Seiten und Protokoll der Privilegien),
+über alle Typen, Rand- und Zufallswerte. `ir/tests.rs` baut für Zufallswörter jeder Befehlsklasse eine Region,
+prüft die Regeln, verifiziert sie und spielt sie mit Speicher auf `Concrete` zurück; Zustand, Speicher und Fehler
+müssen exakt T0 entsprechen. Stichprobenhafte Mutationen in Primitiven, Beschreibungen, Builder und Decoder wurden
+von diesen Tests erkannt.
 
 **Helper-Fallback:** Für seltene oder komplexe Befehle darf T1/T2 eine Operation als Aufruf der T0-Semantik
 emittieren (`call helper_exec_inst(state, word)`). Das ist per Konstruktion exakt und erlaubt schrittweises
@@ -226,10 +279,39 @@ Ausrollen. Anforderung: Der Block schreibt vorher alle gecachten Gast-Register z
   `DecodeBitMasks` für logische Immediates wird ebenfalls im Decoder berechnet und **gesondert exhaustiv**
   getestet (alle 2^13 `N:immr:imms`-Kombinationen pro Breite gegen die Pseudocode-Transkription), weil das ein
   klassischer Fehlerherd ist.
-* **Hints:** Nicht zugewiesene `HINT`-Kodierungen verhalten sich architektonisch wie `NOP`. Zugewiesene Hints
-  (`PACIASP`, `AUTIBSP`, `BTI`, `ESB`, `CSDB`, `YIELD`, `WFE`, `WFI`, `SEV`, …) werden einzeln dekodiert, weil
-  mehrere davon auf arm64e echte Semantik haben. Bis dahin liefert der Decoder `Unknown` (lieber eine laute
-  Exception als still falsch, Regel 5).
+* **Hints (WP-DBT-02):** Der ganze `HINT`-Raum wird dekodiert (`Inst::Hint { imm }`, `decode::hint_class`).
+  Architektonisch NOP sind hier: nicht zugewiesene Hints (Arm ARM), `YIELD`, `DGH`, `CSDB` (keine Spekulation in
+  T0; ob T1 `lfence` emittiert, entscheidet WP-DBT-09), sowie Hints nicht gemeldeter Features (`ESB` ohne RAS,
+  `PSB/TSB`, `GCSB`, `CLRBHB`, `BTI` nach E-15, `PACM`, `CHKFEAT`, `STSHH`). PAC-Hints (`PACIASP`, `AUTIBZ`,
+  `PACIA1716`, …) sind **genau dann** NOP, wenn der Schlüssel abgeschaltet ist (`SCTLR_EL1.EnIA/EnIB = 0`, über
+  `Ctx`); sonst `ExecError::Unimplemented` bis WP-DBT-11. `WFE`, `WFI`, `SEV`, `SEVL` (Event-Register, Parken;
+  WP-DBT-08, dabei R-ARCH-06: `ERET` setzt das Event-Register, `WFI` mit anstehendem Interrupt ist NOP) und
+  `XPACLRI` (entfernt das PAC-Feld unabhängig von den Schlüsseln) liefern `Unimplemented`, nie ein stilles NOP.
+* **System:** `MRS/MSR` nur für `NZCV`, `FPCR`, `FPSR`, `TPIDR_EL0` (alle an EL0 zugänglich; `CPACR_EL1` ist nicht
+  beschreibbar, FP-Zugriff gilt also als freigegeben). RES0-Bits werden beim `MSR` maskiert (`SysReg::write_mask`;
+  `FPCR`: nur `AHP, DN, FZ, RMode, FZ16`, Trap-Enables RES0). Alle anderen Systemregister, Barrieren (`DMB/DSB/ISB`,
+  WP-DBT-09), `MSR (immediate)`, `SYS` sind `Unknown`. `SVC #imm` → `ExecError::SupervisorCall` (bevorzugte
+  Rücksprungadresse `PC + 4`, der Linux-Harness setzt danach fort), `BRK #imm` → `ExecError::Breakpoint`. `HVC`,
+  `SMC` (ohne EL2/EL3), `HLT`, `DCPS*` und `UDF` sind UNDEFINED.
+* **CONSTRAINED UNPREDICTABLE**, einmal entschieden (Decoder-Moduldoku): Loads/Stores mit Writeback und
+  `Rn == Rt` (bzw. `Rt2`, `Rn != 31`), `LDP/LDNP/LDPSW` mit `Rt == Rt2` und `SMULH/UMULH` mit `Ra != 31` sind
+  **UNDEFINED** (`Constraint_UNDEF`). Für Differenztests gegen Hardware sind diese Wörter auszuschließen.
+* **Loads/Stores (WP-DBT-02):** alle Integer-Formen (`LDR/STR` B/H/W/X und `LDRS*` mit unsigned-, pre-, post-,
+  unscaled-, unprivileged- und Register-Offset mit `UXTW/LSL/SXTW/SXTX`, Literal inkl. `LDRSW`, `LDP/STP/LDNP/STNP/
+  LDPSW` mit Offset/Pre/Post). `PRFM/PRFUM` (auch `RPRFM`-Kodierungen, ohne FEAT_RPRFM ein Prefetch-Hint) sind NOP
+  ohne Zugriff und ohne Fault. SP-Alignment-Prüfung (`CheckSPAlignment`) über `raise_if`, wenn `Ctx` sie
+  einschaltet. Speicher gilt als Normal Memory: Unaligned ist erlaubt außer mit `SCTLR_EL1.A` (und später für
+  Exclusives/Atomics, `Align::Required`). **Abweichung:** Bei abgeschalteter Stage-1-MMU sind Datenzugriffe
+  architektonisch Device-nGnRnE (Unaligned → Alignment Fault); das wird erst modelliert, wenn der Walker
+  Speicherattribute liefert (WP-DBT-06). Der Linux-User-Harness braucht ohnehin Normal Memory. `PSTATE.UAO` ist
+  nicht beschreibbar und damit 0, `LDTR/STTR` prüfen also auch an EL1 mit EL0-Rechten.
+* **Differenztest gegen LLVM** (`decode/llvm_diff.rs`, testing.md §4.4a): `llvm-mc` assembliert je 6000 Zufallswörter
+  aus 34 Klassenmasken als `.inst` in ein ELF, `llvm-objdump -d --mattr=+all` disassembliert. Ein Drucker für `Inst`
+  in LLVM-Syntax (mit den bevorzugten Aliasen nach Arm ARM: `MoveWidePreferred`, `BFXPreferred`, `cset/cinc/cneg`,
+  `mov/mvn/tst/cmp/neg/ngc`, `lsl/lsr/asr/ubfx/sxtw`, …) wird nach Normalisierung (Zahlen als Wert) Wort für Wort
+  verglichen: ~126 000 dekodierte Wörter, **0 Abweichungen**. Wörter, die LLVM als `<unknown>` meldet, dekodiert
+  Ritsu nie; Wörter, die nur LLVM kennt, müssen auf der begründeten Lückenliste (`GAPS`) stehen. Fehlen die
+  LLVM-Werkzeuge, meldet der Test „SKIPPED“.
 * **Gemeldete vs. ausführbare Features:** Befehle eines nicht gemeldeten Features (z. B. `BC.cond`, FEAT_HBC)
   sind `Unknown`, auch wenn sie leicht zu implementieren wären. So bleibt der Decoder deckungsgleich mit den
   ID-Registern (§12).
@@ -304,10 +386,20 @@ Ein `Exit` und jeder Slow-Path einer `MayRaise`-Operation erhalten implizit die 
 ### 5.1 T0 – Interpreter
 
 * Referenz-Semantik und Orakel aller Differenztests (ADR-0006); führt kalten Code aus.
-* `step(&mut CpuState, &impl GuestMemory) -> Result<StepOutcome, ExecError>` (M0, §19). Seit WP-DBT-01 über das
-  `Concrete`-Backend der Semantik-Schicht (`interp.rs` macht nur Fetch und Dispatch).
+* Einstiege (`interp.rs`, Fetch und Dispatch an das `Concrete`-Backend): `step(cpu, &impl GuestMemory)` und
+  `step_with(…, mmu)` mit **nur lesbarem** Speicher (Stores enden als Bus-Fehler/Data Abort; so bleiben Fuzz-Target
+  und Benchmarks unverändert), `step_mut(cpu, &mut impl PlainRam)` mit Lese-/Schreibzugriff und Identitäts-
+  Übersetzung, `step_bus(cpu, &mut impl DataBus)` allgemein; `execute(cpu, inst)` ohne Speicher,
+  `execute_with(cpu, inst, bus)` mit.
 * Kein `panic!` auf Gast-Daten: Jedes Gast-Problem ist ein `ExecError` und wird zur Gast-Exception. Bei
-  `ExecError` bleibt der vCPU-Zustand unverändert (präziser Zustand am fehlerhaften Befehl).
+  `ExecError` bleiben vCPU-Zustand **und Speicher** unverändert (präziser Zustand am fehlerhaften Befehl; für
+  `SupervisorCall` ist die Rücksprungadresse `pc + 4`). `ExecError::Unimplemented` ist keine Gast-Exception,
+  sondern „gültiger Befehl, Semantik fehlt noch“ (Regel 5).
+* Gemessen (WP-DBT-02, `make bench-icount`, deterministisch): 142,5 Host-Befehle pro Gastbefehl (`countdown`) bzw.
+  132,6 (`mix`), vorher (M0-Stand) 160,0 bzw. 145,9. Maßnahmen: `Ctx` nur bei Bedarf berechnen, große und seltene
+  Decoder-/Beschreibungszweige außer Linie (`#[inline(never)]`), damit der heiße Pfad keine Callee-saved-Register
+  sichert, Debug-Regelbuchführung nur in Debug-Builds, Bus monomorphisiert. Eine Grenze für `size_of::<Inst>()`
+  (≤ 32 Byte) ist als Test festgehalten.
 * FP in T0 über eine **bit-exakte Software-FP-Implementierung** (Arm-`FPRound`-Pseudocode inkl. FPSR-Flags),
   nicht über Host-FP. Grund: Rust bietet keinen sicheren Zugriff auf Rundungsmodi und Exception-Flags (O-DBT-8).
 * Zielwert (Schätzung): ≥ 30 MIPS mit Decode-Cache.
@@ -1086,8 +1178,8 @@ dieses Dokuments, `make check` grün.
 | WP | Ziel | Abhängig | Risiko | Akzeptanz |
 |---|---|---|---|---|
 | **WP-M0-DBT** | Dieses Dokument + Skelett (Decoder-Teilmenge, T0, TLB, MMU-Trait) | – | | `cargo test/clippy/fmt` grün (erledigt, §19) |
-| **WP-DBT-01** | Semantik-Schicht `Sem` + `Concrete`-Backend + IR-Typdefinitionen; M0-Befehle darauf umgestellt | M0 | ★ (prägt alles) | M0-Tests unverändert grün; Ops-Konformanztests für alle `Sem`-Ops; Review durch architect (umgesetzt, §3.2.1, §19; architect-Review offen) |
-| **WP-DBT-02** | Integer-Basis-ISA in T0: DP-imm (inkl. `DecodeBitMasks`, Bitfield, Extract, `ADR/ADRP`), DP-reg (Shift/Extend, `ADC/SBC`, `CCMP`, `CSEL`-Familie, `MADD/SMULH/UDIV`…, `CLZ/RBIT/REV`), alle Loads/Stores inkl. `LDP/STP`, Pre/Post-Index, Literal; `SVC/BRK`; `MRS/MSR NZCV/TPIDR_EL0/FPCR` | 01 | | Decoder-Tests je Klasse, Encoder-Roundtrip, `DecodeBitMasks` exhaustiv, T0-Tests inkl. Division durch 0 und `INT_MIN/−1` |
+| **WP-DBT-01** | Semantik-Schicht `Sem` + `Concrete`-Backend + IR-Typdefinitionen; M0-Befehle darauf umgestellt | M0 | ★ (prägt alles) | M0-Tests unverändert grün; Ops-Konformanztests für alle `Sem`-Ops; Review durch architect (umgesetzt, §3.2.1, §19; Review: [R-DBT-01](../research/R-DBT-01-sem-review.md), P1 in WP-DBT-02 umgesetzt) |
+| **WP-DBT-02** | Integer-Basis-ISA in T0: DP-imm (inkl. `DecodeBitMasks`, Bitfield, Extract, `ADR/ADRP`), DP-reg (Shift/Extend, `ADC/SBC`, `CCMP`, `CSEL`-Familie, `MADD/SMULH/UDIV`…, `CLZ/RBIT/REV`), alle Loads/Stores inkl. `LDP/STP`, Pre/Post-Index, Literal; `SVC/BRK`; `MRS/MSR NZCV/TPIDR_EL0/FPCR` | 01 | | Decoder-Tests je Klasse, Encoder-Roundtrip, `DecodeBitMasks` exhaustiv, T0-Tests inkl. Division durch 0 und `INT_MIN/−1` (umgesetzt, §3.2.1, §3.3, §19; Differenztest gegen `llvm-objdump` ohne Abweichung; Barrieren/Exclusives → WP-DBT-09, PAC-Formen → WP-DBT-11, `WFE/WFI/SEV` → WP-DBT-08) |
 | **WP-DBT-03** | Linux-User-Harness (ELF-Loader, Startstack, Syscalls §16.3) | 02 | | **Meilenstein M1: statisches aarch64-Linux-ELF "hello world" (musl und glibc) läuft im User-Mode über T0** und gibt korrekt aus; Exit-Code stimmt |
 | **WP-DBT-04** | Differenztest-Infrastruktur: Generator, `ritsu-ref-runner`, Golden Files vom Arm-Runner, QEMU-Orakel | 02 (mit test-engineer) | | CI-Job erzeugt/prüft Golden Files; ≥ 10⁵ Vektoren Integer-ISA ohne Abweichung |
 | **WP-DBT-05** | Decoder-Fuzzing + nächtlicher 2³²-Klassifikationsvergleich | 02 | | Fuzz-Targets in `fuzz/`; 0 Abweichungen in der Klassifikation für dekodierte Klassen |
@@ -1141,13 +1233,15 @@ dieses Dokuments, `make check` grün.
 | `crates/ritsu-mem/src/mmu.rs` | `AccessKind`, `Privilege`, `Access`, `PagePerms`, `FaultKind` (mit `fsc()` nach `ESR_ELx`), `TranslationFault`, Trait `Translate`, `IdentityTranslate` (MMU aus, Address-Size-Fault oberhalb der PA-Größe) | Rechte-Matrix, FSC-Codes, Identität/Fault |
 | `crates/ritsu-mem/src/tlb.rs` | Direkt abgebildeter Referenz-TLB für 16 KiB: `insert`, `lookup` (mit ASID/global/Rechten), `flush_all`, `flush_asid`, `flush_va`, `flush_va_all_asids`, Block-Fragment-Behandlung über ein konservatives VA-Intervall `[lo, hi]` (§7.1) | Treffer/Miss, Konflikte, TLBI-Semantik, Blöcke, Blöcke am Adressraumende |
 | `crates/ritsu-dbt/src/cpu.rs` | `CpuState` (`#[repr(C)]`: `x[31]`, `sp_el0/el1`, `pc`, `Nzcv`, EL, `PSTATE.SP`, `DAIF`, `SysRegs`-Platzhalter, `PacKeys` mit geschwärztem `Debug`; alle eingebetteten Typen `#[repr(C)]`/`#[repr(u8)]`/`#[repr(transparent)]`), `XReg`, `GpReg` (SP/ZR aufgelöst) | SP-Auswahl, ZR, 32-Bit-Zero-Extension, JIT-ABI-Offsets per `offset_of!` |
-| `crates/ritsu-dbt/src/decode.rs` | `decode(u32) -> Inst` für `MOVN/MOVZ/MOVK`, `ADD/ADDS/SUB/SUBS (imm)`, `B`, `BL`, `BR`, `BLR`, `RET`, `CBZ/CBNZ`, `B.cond`, `NOP`; `Cond` mit `holds()` (delegiert an `sem::condition_holds`) | bekannte Wörter, Register-31-Regeln, Unallocated, Offsets an den Grenzen, Encoder-Roundtrip auf 140 000 Zufallswörtern |
-| `crates/ritsu-dbt/src/sem/` | Trait `Sem`, `Ty`, `BinOp`, `CmpOp`, `BranchKind`, `Exception` (`mod.rs`); Beschreibungen der M0-Befehle + `lower` (`a64.rs`); Pseudocode-Primitive (`prim.rs`); T0-Backend `Concrete` (`concrete.rs`) (WP-DBT-01) | Konformanz jeder Operation gegen unabhängige Orakel über alle Typen (`conformance.rs`), `add_with_carry64/32` gegen 128-Bit-Orakel, Debug-Prüfungen für Beschreibungsfehler |
-| `crates/ritsu-dbt/src/ir/` | IR-Typen (`Region`, `Block`, `Value`, `Type`, `Op`, `Terminator`, `Exit`), `Region::verify`, `Builder` (IR-Backend von `Sem`) (WP-DBT-01) | M0-Befehle: IR-Replay = T0 (Zustand und Fehler) auf Zufallszuständen, ganzer Schleifenblock, Form bedingter Sprünge, relative PCs, Verifier-Negativtests |
-| `crates/ritsu-dbt/src/interp.rs` | T0: `step`, `step_with`, `fetch`, `execute` (seit WP-DBT-01 nur Fetch + Dispatch an `sem::lower` auf `Concrete`), `ExecError` (Undefined, PC-Alignment, Instruction Abort, Bus-Fehler), `StepOutcome` | Countdown-Schleife, Call/Return, `BLR X30`, CBZ 32/64, Flags 32/64, alle 16 Bedingungen × 16 Flag-Kombinationen, präziser Zustand bei Fehlern |
-| `crates/ritsu-dbt/src/tier.rs` | Schnittstellen `Tier`, `TbFlags`, `BlockKey`, `BlockId`, `TranslateError`, Traits `CodeSource`, `Translator`, `TranslationCache` (ohne Implementierung) | – |
-| `crates/ritsu-dbt/src/asm.rs` | Test-Encoder (nur `#[cfg(test)]`), gegen bekannte Wörter geprüft | – |
+| `crates/ritsu-dbt/src/decode/` | `decode(u32) -> Inst` (WP-DBT-02): DP-imm (`ADR/ADRP`, `ADD/SUB(S)`, logische Immediates, `MOV*`, Bitfeld, `EXTR`; `bitmask.rs`: `DecodeBitMasks`), DP-reg (logisch/arithmetisch mit Shift/Extend, `ADC/SBC(S)`, `CCMP/CCMN`, `CSEL`-Familie, 3-/2-/1-Quellen), Sprünge inkl. `TBZ/TBNZ`, `SVC/BRK`, Hints, `MRS/MSR` (4 Register), alle Integer-Loads/-Stores und Paare; `Cond`, `hint_class` | bekannte Wörter je Klasse, Register-31-Regeln, Unallocated/CONSTRAINED-UNPREDICTABLE, `DecodeBitMasks` exhaustiv (2 × 2¹³ × 2 Modi gegen Bit-Transkription), Encoder-Roundtrip je Klasse, Differenztest gegen `llvm-objdump` (`llvm_diff.rs`) |
+| `crates/ritsu-dbt/src/sem/` | Trait `Sem` mit `Ctx`, `MemAttrs`, Speicher-Ops, `raise_if`, Breitenumwandlung (`mod.rs`); Beschreibungen aller WP-DBT-02-Klassen + `lower` (`a64.rs`); Primitive (`prim.rs`); T0-Backend `Concrete<B: DataBus>` (`concrete.rs`) | Konformanz jeder Operation gegen unabhängige Orakel (`conformance.rs`), Speicher mit Test-MMU (Seitengrenzen, Fault ohne Teil-Write, Alignment, Privileg, Syndrom), Debug-Prüfungen für Beschreibungsfehler |
+| `crates/ritsu-dbt/src/mem.rs` | `DataBus` (schmale T0-Speicherschnittstelle), `MemBus` (nur `PlainRam`), `ReadOnlyBus`, `NoMemory`, Marker `PlainRam` | Lesen/Schreiben/Proben, Nur-Lese-Sicht, kein Speicher |
+| `crates/ritsu-dbt/src/ir/` | IR-Typen, `Op` mit Speicher-/Flag-/Systemregister-Ops und `effects()`, `Region::verify` (inkl. Richtung von `Ext/Trunc`), `Builder` mit statischer Regelprüfung (`RuleViolation`) | IR-Replay = T0 (Zustand, Speicher, Fehler) für alle Klassen, Regelprüfung über alle Klassen × 32 Kontexte, Negativtests der Regelprüfung, `raise_if`-Form, Verifier-Negativtests |
+| `crates/ritsu-dbt/src/interp.rs` | T0: `step`, `step_with` (nur lesend), `step_mut`, `step_bus`, `fetch`, `execute`, `execute_with`; `ExecError` (+ `SupervisorCall`, `Breakpoint`, `SpAlignment`, `DataAbort`, `Unimplemented`), `DataAbort`, `DataFaultKind`, `StepOutcome` | M0-Tests; `t0_tests.rs`: Semantik jeder Klasse gegen handgerechnete Werte (Division durch 0, `INT_MIN/−1`, alle `CCMP`-Bedingungen × Flags, alle Hints × Schlüsselfreigaben, alle Lade-Erweiterungen und Adressierungsarten, STP-Fault ohne Teil-Write, SP-Alignment nach `SCTLR`), mit clang -O2 übersetzte `strlen/memcpy/memcmp` und eine Arithmetik-Schleife laufen in T0 korrekt |
+| `crates/ritsu-dbt/src/tier.rs` | Schnittstellen `Tier`, `TbFlags` (mit `from_state`, Quelle von `Ctx`), `BlockKey`, `BlockId`, `TranslateError`, Traits `CodeSource`, `Translator`, `TranslationCache` (ohne Implementierung) | `Ctx`/`TbFlags`-Rundweg (Konformanz) |
+| `crates/ritsu-dbt/src/asm.rs` | Test-Encoder für alle dekodierten Klassen (nur `#[cfg(test)]`), gegen bekannte Wörter und den Decoder geprüft | – |
 
-Bewusst ausgelassen: `BranchAddr`/TBI bei Sprüngen (WP-DBT-06, zentral in `Sem::branch_indirect` der Backends),
-Speicher-/Systemregister-Operationen in `Sem` (WP-DBT-02/-07), 128-Bit-/Vektorwerte (WP-DBT-10), T1-`Template`-
-Backend (WP-DBT-12), IR-Codegen und -Passes (WP-DBT-17), alle weiteren Befehlsklassen, Hints außer `NOP`.
+Bewusst ausgelassen: `BranchAddr`/TBI bei Sprüngen (WP-DBT-06, als `Ctx`-gesteuerte Beschreibungs-Hilfsfunktion nach
+R-DBT-01 P2-3), Barrieren/Exclusives/Acquire-Release/LSE (WP-DBT-09), weitere Systemregister und `SYS` (WP-DBT-07),
+`WFE/WFI/SEV/SEVL` (WP-DBT-08), PAC-Formen (WP-DBT-11), CRC32 und FEAT_FlagM (`RMIF/SETF*`, noch kein WP),
+128-Bit-/Vektorwerte (WP-DBT-10), T1-`Template`-Backend (WP-DBT-12), IR-Codegen und -Passes (WP-DBT-17).

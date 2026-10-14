@@ -11,7 +11,7 @@
 //! [`Sem`]: super::Sem
 //! [`Concrete`]: super::concrete::Concrete
 
-use super::{BinOp, CmpOp, Ty};
+use super::{BinOp, CmpOp, Ty, UnOp};
 use crate::cpu::Nzcv;
 use crate::decode::Cond;
 
@@ -75,6 +75,43 @@ pub fn add_with_carry(ty: Ty, x: u64, y: u64, carry_in: bool) -> (u64, Nzcv) {
     }
 }
 
+/// `AddWithCarry(x, NOT y, carry_in)` at width `ty`: subtraction with borrow, as used
+/// by `SUBS/CMP` (`carry_in = true`) and `SBC/SBCS` (`carry_in = C`).
+#[must_use]
+pub fn sub_with_carry(ty: Ty, x: u64, y: u64, carry_in: bool) -> (u64, Nzcv) {
+    add_with_carry(ty, x, not(ty, y), carry_in)
+}
+
+/// Flags of a logical operation at width `ty`: `N` = top bit, `Z` = zero, `C = V = 0`.
+#[must_use]
+pub const fn flags_logic(ty: Ty, result: u64) -> Nzcv {
+    let r = truncate(ty, result);
+    Nzcv::new(r >> (ty.bits() - 1) & 1 == 1, r == 0, false, false)
+}
+
+/// Sign-extends `v` from width `from` and truncates the result to width `to`
+/// (`SignExtend` for `from <= to`; for `from > to` this is a plain truncation).
+#[must_use]
+pub const fn sext(from: Ty, to: Ty, v: u64) -> u64 {
+    truncate(to, sign_extend(from, v) as u64)
+}
+
+/// The unary operations of [`UnOp`] at width `ty` (input truncated first).
+#[must_use]
+pub const fn unop(op: UnOp, ty: Ty, a: u64) -> u64 {
+    let a = truncate(ty, a);
+    let unused = 64 - ty.bits();
+    match op {
+        // `a` is canonical, so its leading zeros include the `unused` high bits.
+        UnOp::Clz => (a.leading_zeros() - unused) as u64,
+        UnOp::Rbit => a.reverse_bits() >> unused,
+        UnOp::Bswap => match ty {
+            Ty::I1 | Ty::I8 => a,
+            _ => a.swap_bytes() >> unused,
+        },
+    }
+}
+
 /// Truncates `v` to the width of `ty` (zero-extended canonical form).
 #[must_use]
 pub const fn truncate(ty: Ty, v: u64) -> u64 {
@@ -93,6 +130,8 @@ pub const fn sign_extend(ty: Ty, v: u64) -> i64 {
 /// Shift and rotate amounts are taken modulo the width, as in the Arm ARM
 /// `ShiftReg()` used by `LSLV/LSRV/ASRV/RORV` (`UInt(Rm) MOD datasize`). Immediate
 /// shifts are decode-time constants below the width, for which this is the identity.
+/// `UMulHi/SMulHi` are the upper `bits` of the double-width product; `UDiv/SDiv`
+/// round towards zero with Arm's rules (`x / 0 = 0`, `MIN / -1 = MIN`).
 #[must_use]
 pub fn binop(op: BinOp, ty: Ty, a: u64, b: u64) -> u64 {
     let (a, b) = (truncate(ty, a), truncate(ty, b));
@@ -113,6 +152,25 @@ pub fn binop(op: BinOp, ty: Ty, a: u64, b: u64) -> u64 {
                 a
             } else {
                 (a >> amount) | (a << (bits - amount))
+            }
+        }
+        BinOp::Mul => a.wrapping_mul(b),
+        // The full product of two `bits`-wide values fits in 128 bits.
+        BinOp::UMulHi => ((a as u128 * b as u128) >> bits) as u64,
+        BinOp::SMulHi => {
+            let p = sign_extend(ty, a) as i128 * sign_extend(ty, b) as i128;
+            (p >> bits) as u64
+        }
+        // Arm: division by zero gives 0.
+        BinOp::UDiv => a.checked_div(b).unwrap_or_default(),
+        BinOp::SDiv => {
+            let (sa, sb) = (sign_extend(ty, a), sign_extend(ty, b));
+            if sb == 0 {
+                0
+            } else {
+                // `wrapping_div` maps i64::MIN / -1 to i64::MIN; narrower types do not
+                // overflow in i64 and wrap to their MIN on truncation below.
+                sa.wrapping_div(sb) as u64
             }
         }
     };

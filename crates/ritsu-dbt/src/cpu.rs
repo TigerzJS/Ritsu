@@ -91,6 +91,78 @@ impl GpReg {
     }
 }
 
+/// A system register reachable through `MRS`/`MSR (register)` (WP-DBT-02 subset).
+///
+/// Every other system register encoding is decoded as [`crate::Inst::Unknown`] and raises
+/// an Undefined Instruction exception until the generated register table of WP-DBT-07
+/// exists (`docs/subsystems/dbt.md` §10.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SysReg {
+    /// `NZCV` (`op0=3, op1=3, CRn=4, CRm=2, op2=0`): the condition flags.
+    Nzcv,
+    /// `FPCR` (`3, 3, 4, 4, 0`).
+    Fpcr,
+    /// `FPSR` (`3, 3, 4, 4, 1`).
+    Fpsr,
+    /// `TPIDR_EL0` (`3, 3, 13, 0, 2`).
+    TpidrEl0,
+}
+
+impl SysReg {
+    /// All supported registers.
+    pub const ALL: [Self; 4] = [Self::Nzcv, Self::Fpcr, Self::Fpsr, Self::TpidrEl0];
+
+    /// The `o0:op1:CRn:CRm:op2` field of `MRS/MSR` (instruction bits `19:5`, with
+    /// `op0 = 2 + o0`).
+    #[must_use]
+    pub const fn encoding(self) -> u32 {
+        const fn enc(op0: u32, op1: u32, crn: u32, crm: u32, op2: u32) -> u32 {
+            ((op0 - 2) << 14) | (op1 << 11) | (crn << 7) | (crm << 3) | op2
+        }
+        match self {
+            Self::Nzcv => enc(3, 3, 4, 2, 0),
+            Self::Fpcr => enc(3, 3, 4, 4, 0),
+            Self::Fpsr => enc(3, 3, 4, 4, 1),
+            Self::TpidrEl0 => enc(3, 3, 13, 0, 2),
+        }
+    }
+
+    /// Inverse of [`SysReg::encoding`]; `None` for every other register.
+    #[must_use]
+    pub const fn from_encoding(field: u32) -> Option<Self> {
+        let mut i = 0;
+        while i < Self::ALL.len() {
+            if Self::ALL[i].encoding() == field & 0x7fff {
+                return Some(Self::ALL[i]);
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// Bits an `MSR` can change; all others are RES0 (read as zero, writes ignored)
+    /// for the feature set of `docs/subsystems/dbt.md` §12:
+    ///
+    /// * `NZCV`: `N, Z, C, V` (bits 31:28).
+    /// * `FPCR`: `AHP` (26), `DN` (25), `FZ` (24), `RMode` (23:22), `FZ16` (19,
+    ///   FEAT_FP16). The trap enables `IDE/IXE/UFE/OFE/DZE/IOE` are RES0 because
+    ///   floating-point exception trapping is not implemented (R-DBT-01 P3-1); `Len`
+    ///   and `Stride` are RES0 without AArch32; `AH/FIZ/NEP` (FEAT_AFP) and `EBF`
+    ///   (FEAT_EBF16) are not reported.
+    /// * `FPSR`: `QC` (27) and the cumulative flags `IDC` (7), `IXC, UFC, OFC, DZC, IOC`
+    ///   (4:0). Bits 31:28 are the AArch32 comparison flags, RES0 without AArch32.
+    /// * `TPIDR_EL0`: all 64 bits.
+    #[must_use]
+    pub const fn write_mask(self) -> u64 {
+        match self {
+            Self::Nzcv => 0xf000_0000,
+            Self::Fpcr => 0x07c8_0000,
+            Self::Fpsr => 0x0800_009f,
+            Self::TpidrEl0 => u64::MAX,
+        }
+    }
+}
+
 /// The condition flags `PSTATE.{N,Z,C,V}`.
 ///
 /// Stored in the layout of the `NZCV` system register (N = bit 31, Z = 30, C = 29,
@@ -397,7 +469,8 @@ mod tests {
         let mut cpu = CpuState::new(0);
         let x3 = GpReg::x(3).unwrap();
         cpu.write(x3, u64::MAX);
-        let mut c = Concrete::new(&mut cpu);
+        let mut bus = crate::mem::NoMemory;
+        let mut c = Concrete::new(&mut cpu, &mut bus);
         let v = c.imm(Ty::I32, 0xdead_beef_1234_5678);
         c.set_gpr(x3, Ty::I32, v);
         assert_eq!(c.gpr(GpReg::Zr, Ty::I32), 0);

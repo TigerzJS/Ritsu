@@ -336,12 +336,13 @@
      "name": "WP-DBT-02",
      "title": "Integer-Basis-ISA in T0 (DP-imm/reg, Loads/Stores)",
      "ms": "M1",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "01",
      "accept": "",
      "owner": "dbt-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "Integer-Basis-ISA in T0; 0 Abweichungen gg. llvm-objdump (126k Wörter) und qemu (20k); 142,5 Host-Befehle/Gastbefehl (vorher 160)."
     },
     {
      "id": "WP-DBT-03",
@@ -353,7 +354,8 @@
      "deps": "02",
      "accept": "hello world musl+glibc",
      "owner": "dbt-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "braucht vorher Barrieren/Exclusives (WP-DBT-09) für glibc/musl-Start und einige EL0-Systemregister (WP-DBT-07)."
     },
     {
      "id": "WP-DBT-04",
@@ -558,6 +560,18 @@
      "accept": "",
      "owner": "dbt-engineer",
      "weight": 2
+    },
+    {
+     "id": "WP-DBT-21",
+     "name": "WP-DBT-21",
+     "title": "Review-Nacharbeit WP-DBT-02: Store-im-Probe-Bereich statisch prüfen, GAPS-Prädikate, STP-Pre/Post-Test, harte Probe-Grenze",
+     "ms": "M1",
+     "status": "open",
+     "risk": false,
+     "deps": "DBT-02",
+     "accept": "",
+     "owner": "dbt-engineer",
+     "weight": 1
     }
    ]
   },
@@ -1741,6 +1755,18 @@
      "status": "wip",
      "risk": false,
      "deps": "QA-04",
+     "accept": "",
+     "owner": "test-engineer",
+     "weight": 1
+    },
+    {
+     "id": "WP-QA-11",
+     "name": "WP-QA-11",
+     "title": "fuzz_t0_step mit step_mut + SCTLR-Bits (Stores, Writeback, SP-Alignment, PAC-Hints)",
+     "ms": "M1",
+     "status": "open",
+     "risk": false,
+     "deps": "DBT-02",
      "accept": "",
      "owner": "test-engineer",
      "weight": 1

@@ -11,8 +11,15 @@ use crate::asm;
 use crate::cpu::{CpuState, ExceptionLevel, Nzcv};
 use crate::decode::{Inst, decode};
 use crate::interp::{self, ExecError};
+use crate::mem::{DataBus, MemBus, NoMemory};
+use crate::sem::Ctx;
 use crate::sem::Sem;
 use crate::sem::concrete::Concrete;
+use crate::testutil::{CLASSES, Rng};
+use crate::tier::TbFlags;
+use ritsu_core::GuestPhysAddr;
+use ritsu_mem::mmu::IdentityTranslate;
+use ritsu_mem::{GuestMemory, RamRegion};
 
 #[derive(Clone, Copy, Debug)]
 enum Cv {
@@ -34,51 +41,100 @@ fn flags(vals: &[Option<Cv>], v: Value) -> Nzcv {
     }
 }
 
-/// Runs `region` once from its entry at `cpu.pc` until it exits.
+/// Runs `region` once from its entry at `cpu.pc` until it exits, on memory `bus`.
 ///
 /// Restriction: an [`Exit::Raise`] must come from the instruction at offset 0 (the
-/// `Concrete` backend reports the region entry as the faulting PC).
-fn eval(region: &Region, cpu: &mut CpuState) -> Result<(), ExecError> {
+/// `Concrete` backend reports the region entry as the faulting PC); the same holds for
+/// data aborts.
+fn eval(region: &Region, cpu: &mut CpuState, bus: &mut dyn DataBus) -> Result<(), ExecError> {
     region.verify().expect("builder output must verify");
-    let mut c = Concrete::new(cpu);
+    let mut c = Concrete::new(cpu, bus);
     let mut vals: Vec<Option<Cv>> = vec![None; region.num_values()];
     let mut block = Region::ENTRY;
     for _ in 0..10_000 {
         let data = region.block(block).expect("valid block");
         for inst in &data.insts {
+            let i = |v: Value| int(&vals, v);
+            let fl = |v: Value| flags(&vals, v);
             let r: [Option<Cv>; 2] = match inst.op {
                 Op::Iconst { ty, imm } => [Some(Cv::Int(c.imm(ty, imm))), None],
                 Op::PcRel { offset } => [Some(Cv::Int(c.pc_rel(offset))), None],
                 Op::GetGpr { reg, ty } => [Some(Cv::Int(c.gpr(reg, ty))), None],
                 Op::SetGpr { reg, ty, value } => {
-                    c.set_gpr(reg, ty, int(&vals, value));
+                    c.set_gpr(reg, ty, i(value));
                     [None, None]
                 }
                 Op::GetNzcv => [Some(Cv::Flags(c.nzcv())), None],
                 Op::SetNzcv { flags: f } => {
-                    c.set_nzcv(flags(&vals, f));
+                    c.set_nzcv(fl(f));
+                    [None, None]
+                }
+                Op::GetSysreg { reg } => [Some(Cv::Int(c.sysreg(reg))), None],
+                Op::SetSysreg { reg, value } => {
+                    c.set_sysreg(reg, i(value));
                     [None, None]
                 }
                 Op::AddWithCarry { ty, a, b, carry_in } => {
-                    let (r, f) =
-                        c.add_with_carry(ty, int(&vals, a), int(&vals, b), int(&vals, carry_in));
+                    let (r, f) = c.add_with_carry(ty, i(a), i(b), i(carry_in));
                     [Some(Cv::Int(r)), Some(Cv::Flags(f))]
                 }
-                Op::Binary { op, ty, a, b } => [
-                    Some(Cv::Int(c.binop(op, ty, int(&vals, a), int(&vals, b)))),
-                    None,
-                ],
-                Op::Not { ty, a } => [Some(Cv::Int(c.not(ty, int(&vals, a)))), None],
-                Op::Icmp { cc, ty, a, b } => [
-                    Some(Cv::Int(c.icmp(cc, ty, int(&vals, a), int(&vals, b)))),
-                    None,
-                ],
+                Op::SubWithCarry { ty, a, b, carry_in } => {
+                    let (r, f) = c.sub_with_carry(ty, i(a), i(b), i(carry_in));
+                    [Some(Cv::Int(r)), Some(Cv::Flags(f))]
+                }
+                Op::FlagsLogic { ty, a } => [Some(Cv::Flags(c.flags_logic(ty, i(a)))), None],
+                Op::FlagC { flags: f } => [Some(Cv::Int(c.flag_c(fl(f)))), None],
+                Op::SelectFlags { cond, a, b } => {
+                    [Some(Cv::Flags(c.select_flags(i(cond), fl(a), fl(b)))), None]
+                }
+                Op::FlagsToBits { flags: f } => [Some(Cv::Int(c.flags_to_bits(fl(f)))), None],
+                Op::BitsToFlags { a } => [Some(Cv::Flags(c.bits_to_flags(i(a)))), None],
+                Op::Binary { op, ty, a, b } => [Some(Cv::Int(c.binop(op, ty, i(a), i(b)))), None],
+                Op::Unary { op, ty, a } => [Some(Cv::Int(c.unop(op, ty, i(a)))), None],
+                Op::Not { ty, a } => [Some(Cv::Int(c.not(ty, i(a)))), None],
+                Op::Ext {
+                    signed: false,
+                    from,
+                    to,
+                    a,
+                } => [Some(Cv::Int(c.zext(from, to, i(a)))), None],
+                Op::Ext {
+                    signed: true,
+                    from,
+                    to,
+                    a,
+                } => [Some(Cv::Int(c.sext(from, to, i(a)))), None],
+                Op::Trunc { from, to, a } => [Some(Cv::Int(c.trunc(from, to, i(a)))), None],
+                Op::Icmp { cc, ty, a, b } => [Some(Cv::Int(c.icmp(cc, ty, i(a), i(b)))), None],
                 Op::Select { ty, cond, a, b } => {
-                    let v = c.select(ty, int(&vals, cond), int(&vals, a), int(&vals, b));
-                    [Some(Cv::Int(v)), None]
+                    [Some(Cv::Int(c.select(ty, i(cond), i(a), i(b)))), None]
                 }
                 Op::CondHolds { cond, flags: f } => {
-                    [Some(Cv::Int(c.cond_holds(cond, flags(&vals, f)))), None]
+                    [Some(Cv::Int(c.cond_holds(cond, fl(f)))), None]
+                }
+                Op::Load { ty, attrs, addr } => {
+                    assert_eq!(inst.pc_offset, 0, "eval restriction");
+                    [Some(Cv::Int(c.load(ty, i(addr), attrs)?)), None]
+                }
+                Op::Store {
+                    ty,
+                    attrs,
+                    addr,
+                    value,
+                } => {
+                    assert_eq!(inst.pc_offset, 0, "eval restriction");
+                    c.store(ty, i(addr), i(value), attrs)?;
+                    [None, None]
+                }
+                Op::Probe {
+                    ty,
+                    count,
+                    attrs,
+                    addr,
+                } => {
+                    assert_eq!(inst.pc_offset, 0, "eval restriction");
+                    c.probe(ty, count, i(addr), attrs)?;
+                    [None, None]
                 }
             };
             for (slot, value) in inst.results.iter().zip(r) {
@@ -128,29 +184,23 @@ fn eval(region: &Region, cpu: &mut CpuState) -> Result<(), ExecError> {
     panic!("region did not exit");
 }
 
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 << 13;
-        self.0 ^= self.0 >> 7;
-        self.0 ^= self.0 << 17;
-        self.0
-    }
-}
+const RAM_BASE: u64 = 0x4000_0000;
+const RAM_LEN: usize = 0x2000;
 
 fn random_state(rng: &mut Rng) -> CpuState {
     let mut cpu = CpuState::new(rng.next() & !3);
-    for x in &mut cpu.x {
-        // Mix of small, large and 32-bit-boundary values.
-        *x = match rng.next() % 4 {
-            0 => rng.next() % 8,
-            1 => rng.next() & 0xffff_ffff,
-            _ => rng.next(),
-        };
+    let value = |rng: &mut Rng| match rng.next() % 6 {
+        0 => rng.next() % 8,
+        1 => rng.next() & 0xffff_ffff,
+        // Addresses into the test RAM (any alignment), so loads and stores succeed.
+        2 | 3 => RAM_BASE + 0x100 + rng.next() % (RAM_LEN as u64 - 0x200),
+        _ => rng.next(),
+    };
+    for i in 0..31 {
+        cpu.x[i] = value(rng);
     }
-    cpu.sp_el0 = rng.next();
-    cpu.sp_el1 = rng.next();
+    cpu.sp_el0 = value(rng);
+    cpu.sp_el1 = value(rng);
     cpu.nzcv = Nzcv::from_nibble((rng.next() & 0xf) as u8);
     cpu.el = if rng.next() & 1 == 0 {
         ExceptionLevel::El0
@@ -158,43 +208,256 @@ fn random_state(rng: &mut Rng) -> CpuState {
         ExceptionLevel::El1
     };
     cpu.sp_sel = rng.next() & 1 == 0;
+    // SCTLR_EL1.{A, SA, SA0, EnIB, EnIA}: every context-dependent path is exercised.
+    let bits = rng.next();
+    cpu.sys.sctlr_el1 = (bits & 0b11010) | (bits & (3 << 30));
+    cpu.sys.fpcr = rng.next();
+    cpu.sys.fpsr = rng.next();
+    cpu.sys.tpidr_el0 = rng.next();
     cpu
 }
 
-/// Every decodable M0 instruction class, plus unknown words: the region built from the
-/// single instruction, replayed, yields exactly the state (and error) T0 produces.
+fn test_ram(rng: &mut Rng) -> RamRegion {
+    let mut ram = RamRegion::new(GuestPhysAddr(RAM_BASE), RAM_LEN);
+    // Eight bytes per RNG step keeps this cheap in debug builds.
+    let bytes: Vec<u8> = (0..RAM_LEN / 8)
+        .flat_map(|_| rng.next().to_le_bytes())
+        .collect();
+    ram.write(GuestPhysAddr(RAM_BASE), &bytes).unwrap();
+    ram
+}
+
+fn ram_bytes(ram: &RamRegion) -> Vec<u8> {
+    let mut b = vec![0; RAM_LEN];
+    ram.read(GuestPhysAddr(RAM_BASE), &mut b).unwrap();
+    b
+}
+
+/// Every decodable instruction class, plus unknown words: the region built from the
+/// single instruction (specialised on the start state's context), replayed, yields
+/// exactly the state, memory and error T0 produces, and the static rule check finds no
+/// violation.
 #[test]
 fn single_instruction_regions_match_t0() {
-    const CLASSES: [(u32, u32); 8] = [
-        (0x1f80_0000, 0x1100_0000), // add/sub immediate
-        (0x1f80_0000, 0x1280_0000), // move wide
-        (0x7c00_0000, 0x1400_0000), // b/bl
-        (0x7e00_0000, 0x3400_0000), // cbz/cbnz
-        (0xff00_0010, 0x5400_0000), // b.cond
-        (0xfe9f_fc1f, 0xd61f_0000), // br/blr/ret
-        (0xffff_ffff, 0xd503_201f), // nop
-        (0x0000_0000, 0x0000_0000), // anything (mostly unknown)
-    ];
     let mut rng = Rng(0x2545_f491_4f6c_dd1d);
     let mut seen_unknown = false;
-    for _ in 0..3_000 {
-        for (mask, pattern) in CLASSES {
-            let word = (rng.next() as u32 & !mask) | pattern;
+    let mut mem_ok = 0;
+    for _ in 0..1_500 {
+        for (name, class) in CLASSES {
+            let word = rng.word_in(class);
             let inst = decode(word);
             seen_unknown |= matches!(inst, Inst::Unknown(_));
-            let region = Builder::lower_sequence(&[inst]);
             let start = random_state(&mut rng);
+            let (region, violations) = Builder::lower_sequence_checked(
+                Builder::with_ctx(Ctx::from_state(&start)),
+                &[inst],
+            );
+            assert_eq!(violations, vec![], "{name} {word:#010x} {inst:?}");
+
+            let ram = test_ram(&mut rng);
+            let mut ram0 = test_ram(&mut Rng(1));
+            ram0.write(GuestPhysAddr(RAM_BASE), &ram_bytes(&ram))
+                .unwrap();
+            let mut ram1 = test_ram(&mut Rng(1));
+            ram1.write(GuestPhysAddr(RAM_BASE), &ram_bytes(&ram))
+                .unwrap();
 
             let mut t0 = start.clone();
-            let r0 = interp::execute(&mut t0, inst).map(|_| ());
+            let mut mmu = IdentityTranslate::default();
+            let r0 = interp::execute_with(&mut t0, inst, &mut MemBus::new(&mut ram0, &mut mmu))
+                .map(|_| ());
             let mut ir = start.clone();
-            let r1 = eval(&region, &mut ir);
+            let mut mmu = IdentityTranslate::default();
+            let r1 = eval(&region, &mut ir, &mut MemBus::new(&mut ram1, &mut mmu));
 
             assert_eq!(r1, r0, "{word:#010x} {inst:?}\n{region:#?}");
             assert_eq!(ir, t0, "{word:#010x} {inst:?}\n{region:#?}");
+            assert!(
+                ram_bytes(&ram0) == ram_bytes(&ram1),
+                "{word:#010x} memory differs"
+            );
+            if r0.is_err() {
+                assert_eq!(t0, start, "{word:#010x}: failed instruction changed state");
+                assert!(
+                    ram_bytes(&ram0) == ram_bytes(&ram),
+                    "{word:#010x}: failed instruction wrote memory"
+                );
+            }
+            if r0.is_ok() && name.starts_with("ldst") {
+                mem_ok += 1;
+            }
         }
     }
     assert!(seen_unknown);
+    assert!(mem_ok > 500, "only {mem_ok} successful memory instructions");
+}
+
+/// The static rule check (R-DBT-01 P1-4) over many words of every class, in every
+/// combination of the context bits descriptions branch on.
+#[test]
+fn every_description_obeys_the_rules_statically() {
+    let mut rng = Rng(0x0dd_ba11_c0ff_ee00);
+    let ctxs: Vec<Ctx> = (0..32u32)
+        .map(|bits| Ctx::from_tb_flags(TbFlags(bits)))
+        .collect();
+    for (name, class) in CLASSES {
+        for _ in 0..400 {
+            let word = rng.word_in(class);
+            let inst = decode(word);
+            for &ctx in &ctxs {
+                let (region, violations) =
+                    Builder::lower_sequence_checked(Builder::with_ctx(ctx), &[inst]);
+                assert_eq!(violations, vec![], "{name} {word:#010x} {inst:?} {ctx:?}");
+                assert_eq!(region.verify(), Ok(()), "{name} {word:#010x} {inst:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn rule_check_reports_violations() {
+    use crate::sem::{BranchKind as K, MemAttrs};
+    let x0 = GpReg::x(0).unwrap();
+    let check = |f: &dyn Fn(&mut Builder)| -> Vec<RuleViolationKind> {
+        let mut b = Builder::new();
+        b.set_pc_offset(8);
+        f(&mut b);
+        let v: Vec<_> = b.violations().iter().map(|v| v.kind).collect();
+        assert!(b.violations().iter().all(|v| v.pc_offset == 8));
+        v
+    };
+    // Two branches.
+    assert_eq!(
+        check(&|b| {
+            b.branch(None, 4, K::Jump);
+            b.branch(None, 8, K::Jump);
+        }),
+        vec![RuleViolationKind::AfterControlTransfer]
+    );
+    // A write after the branch.
+    assert_eq!(
+        check(&|b| {
+            let v = b.imm(Ty::I64, 1);
+            b.branch_indirect(v, K::Jump);
+            b.set_gpr(x0, Ty::I64, v);
+        }),
+        vec![RuleViolationKind::AfterControlTransfer]
+    );
+    // Raise after a register write, load after a write, store after a write.
+    assert_eq!(
+        check(&|b| {
+            let v = b.imm(Ty::I64, 1);
+            b.set_gpr(x0, Ty::I64, v);
+            let _ = b.load(Ty::I8, v, MemAttrs::PLAIN);
+            let _ = b.store(Ty::I8, v, v, MemAttrs::PLAIN);
+            let c = b.imm(Ty::I1, 1);
+            let _ = b.raise_if(c, Exception::SpAlignment);
+            let _ = b.raise(Exception::SpAlignment);
+        }),
+        vec![
+            RuleViolationKind::RaiseAfterWrite,
+            RuleViolationKind::StoreAfterWrite,
+            RuleViolationKind::RaiseAfterWrite,
+            RuleViolationKind::RaiseAfterWrite,
+        ]
+    );
+    // Second store without probe; load after store.
+    assert_eq!(
+        check(&|b| {
+            let a = b.imm(Ty::I64, 0x1000);
+            let v = b.imm(Ty::I8, 1);
+            let _ = b.store(Ty::I8, a, v, MemAttrs::PLAIN);
+            let _ = b.store(Ty::I8, a, v, MemAttrs::PLAIN);
+            let _ = b.load(Ty::I8, a, MemAttrs::PLAIN);
+        }),
+        vec![
+            RuleViolationKind::UnprobedSecondStore,
+            RuleViolationKind::RaiseAfterWrite
+        ]
+    );
+    // Correct multi-store: probe first.
+    assert_eq!(
+        check(&|b| {
+            let a = b.imm(Ty::I64, 0x1000);
+            let v = b.imm(Ty::I8, 1);
+            let _ = b.probe(Ty::I8, 2, a, MemAttrs::PLAIN);
+            let _ = b.store(Ty::I8, a, v, MemAttrs::PLAIN);
+            let _ = b.store(Ty::I8, a, v, MemAttrs::PLAIN);
+            b.set_gpr(x0, Ty::I64, a);
+        }),
+        vec![]
+    );
+    // The rule state resets at the next instruction.
+    let mut b = Builder::new();
+    b.branch(None, 4, K::Jump);
+    b.set_pc_offset(4);
+    let v = b.imm(Ty::I64, 0);
+    b.set_gpr(x0, Ty::I64, v);
+    assert_eq!(b.violations(), &[]);
+}
+
+#[test]
+fn raise_if_splits_the_block() {
+    let insts = [decode(asm::ldst_uimm(3, 1, 0, 31, 0))]; // ldr x0, [sp]
+    let ctx = Ctx::from_tb_flags(TbFlags(TbFlags::EL1 | TbFlags::SP_ALIGN));
+    let (region, v) = Builder::lower_sequence_checked(Builder::with_ctx(ctx), &insts);
+    assert_eq!(v, vec![]);
+    assert_eq!(region.verify(), Ok(()));
+    let raises = region
+        .blocks()
+        .iter()
+        .filter(|b| {
+            matches!(
+                b.term,
+                Some(Terminator::Exit(Exit::Raise {
+                    exception: Exception::SpAlignment,
+                    ..
+                }))
+            )
+        })
+        .count();
+    assert_eq!(raises, 1);
+    // Without the SA check there is no conditional exit at all.
+    let region = Builder::lower_sequence(&insts);
+    assert_eq!(region.blocks().len(), 1);
+    // Effects classes of the memory ops.
+    let load = region.blocks()[0]
+        .insts
+        .iter()
+        .find(|i| matches!(i.op, Op::Load { .. }))
+        .expect("a load");
+    assert!(load.op.effects().may_raise && load.op.effects().reads_mem);
+    assert!(Op::GetNzcv.effects().reads_state);
+}
+
+#[test]
+fn verifier_rejects_wrong_conversion_direction() {
+    let r = Region {
+        blocks: vec![BlockData {
+            params: vec![],
+            insts: vec![
+                inst(
+                    Op::Iconst {
+                        ty: Ty::I64,
+                        imm: 1,
+                    },
+                    [Some(Value(0)), None],
+                ),
+                inst(
+                    Op::Ext {
+                        signed: false,
+                        from: Ty::I64,
+                        to: Ty::I32,
+                        a: Value(0),
+                    },
+                    [Some(Value(1)), None],
+                ),
+            ],
+            term: exit(),
+        }],
+        value_types: vec![Type::I64, Type::I32],
+    };
+    assert_eq!(r.verify(), Err(VerifyError::BadConversion(Block(0))));
 }
 
 /// A whole basic block (the countdown loop body) as one region, iterated to the end.
@@ -218,7 +481,7 @@ fn loop_body_region_matches_t0() {
         for &inst in &insts {
             interp::execute(&mut t0, inst).unwrap();
         }
-        eval(&region, &mut ir).unwrap();
+        eval(&region, &mut ir, &mut NoMemory).unwrap();
         assert_eq!(ir, t0);
     }
     assert_eq!(ir.pc, base + 12);

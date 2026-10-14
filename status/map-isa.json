@@ -11,7 +11,7 @@
     {
      "id": "ADR ADRP",
      "name": "ADR ADRP",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -46,28 +46,28 @@
     {
      "id": "AND (imm)",
      "name": "AND (imm)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ORR (imm)",
      "name": "ORR (imm)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "EOR (imm)",
      "name": "EOR (imm)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ANDS (imm)",
      "name": "ANDS (imm)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -95,28 +95,28 @@
     {
      "id": "SBFM",
      "name": "SBFM",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "BFM",
      "name": "BFM",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "UBFM",
      "name": "UBFM",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "EXTR",
      "name": "EXTR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -205,14 +205,14 @@
     {
      "id": "TBZ",
      "name": "TBZ",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "TBNZ",
      "name": "TBNZ",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     }
@@ -224,7 +224,7 @@
     {
      "id": "SVC",
      "name": "SVC",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -245,7 +245,7 @@
     {
      "id": "BRK",
      "name": "BRK",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -273,7 +273,7 @@
     {
      "id": "YIELD",
      "name": "YIELD",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -364,14 +364,14 @@
     {
      "id": "MSR (reg)",
      "name": "MSR (reg)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "MRS",
      "name": "MRS",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -392,35 +392,35 @@
     {
      "id": "BTI",
      "name": "BTI",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ESB",
      "name": "ESB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CSDB",
      "name": "CSDB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "PSB",
      "name": "PSB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "TSB",
      "name": "TSB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -455,7 +455,7 @@
     {
      "id": "DGH",
      "name": "DGH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     }
@@ -738,322 +738,322 @@
     {
      "id": "ADD (sh)",
      "name": "ADD (sh)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ADDS (sh)",
      "name": "ADDS (sh)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SUB (sh)",
      "name": "SUB (sh)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SUBS (sh)",
      "name": "SUBS (sh)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ADD (ext)",
      "name": "ADD (ext)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ADDS (ext)",
      "name": "ADDS (ext)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SUB (ext)",
      "name": "SUB (ext)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SUBS (ext)",
      "name": "SUBS (ext)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ADC",
      "name": "ADC",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ADCS",
      "name": "ADCS",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SBC",
      "name": "SBC",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SBCS",
      "name": "SBCS",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "AND",
      "name": "AND",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "BIC",
      "name": "BIC",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ORR",
      "name": "ORR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ORN",
      "name": "ORN",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "EOR",
      "name": "EOR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "EON",
      "name": "EON",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ANDS",
      "name": "ANDS",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "BICS",
      "name": "BICS",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CCMN",
      "name": "CCMN",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CCMP",
      "name": "CCMP",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CSEL",
      "name": "CSEL",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CSINC",
      "name": "CSINC",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CSINV",
      "name": "CSINV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CSNEG",
      "name": "CSNEG",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "MADD",
      "name": "MADD",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "MSUB",
      "name": "MSUB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SMADDL",
      "name": "SMADDL",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SMSUBL",
      "name": "SMSUBL",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "UMADDL",
      "name": "UMADDL",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "UMSUBL",
      "name": "UMSUBL",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SMULH",
      "name": "SMULH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "UMULH",
      "name": "UMULH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "UDIV",
      "name": "UDIV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "SDIV",
      "name": "SDIV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LSLV",
      "name": "LSLV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LSRV",
      "name": "LSRV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ASRV",
      "name": "ASRV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "RORV",
      "name": "RORV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "RBIT",
      "name": "RBIT",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "REV16",
      "name": "REV16",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "REV32",
      "name": "REV32",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "REV",
      "name": "REV",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CLZ",
      "name": "CLZ",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "CLS",
      "name": "CLS",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
@@ -1163,238 +1163,238 @@
     {
      "id": "LDR (imm)",
      "name": "LDR (imm)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDR (reg)",
      "name": "LDR (reg)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDR (lit)",
      "name": "LDR (lit)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STR (imm)",
      "name": "STR (imm)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STR (reg)",
      "name": "STR (reg)",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDRB",
      "name": "LDRB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDRH",
      "name": "LDRH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDRSB",
      "name": "LDRSB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDRSH",
      "name": "LDRSH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDRSW",
      "name": "LDRSW",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STRB",
      "name": "STRB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STRH",
      "name": "STRH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDUR",
      "name": "LDUR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STUR",
      "name": "STUR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDURB",
      "name": "LDURB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDURH",
      "name": "LDURH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDURSB",
      "name": "LDURSB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDURSH",
      "name": "LDURSH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDURSW",
      "name": "LDURSW",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STURB",
      "name": "STURB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STURH",
      "name": "STURH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDTR",
      "name": "LDTR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STTR",
      "name": "STTR",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDTRB",
      "name": "LDTRB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDTRH",
      "name": "LDTRH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STTRB",
      "name": "STTRB",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STTRH",
      "name": "STTRH",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDP",
      "name": "LDP",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STP",
      "name": "STP",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDNP",
      "name": "LDNP",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "STNP",
      "name": "STNP",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "LDPSW",
      "name": "LDPSW",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "PRFM",
      "name": "PRFM",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },
     {
      "id": "PRFUM",
      "name": "PRFUM",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "weight": 1
     },

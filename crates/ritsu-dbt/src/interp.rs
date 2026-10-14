@@ -13,10 +13,11 @@
 
 use crate::cpu::{CpuState, ExceptionLevel};
 use crate::decode::{Inst, decode};
-use crate::sem::{self, concrete::Concrete};
+use crate::mem::{DataBus, MemBus, NoMemory, PlainRam, ReadOnlyBus};
+use crate::sem::{self, DataIss, concrete::Concrete};
 use ritsu_core::GuestVirtAddr;
 use ritsu_mem::mmu::{
-    Access, AccessKind, IdentityTranslate, Privilege, Translate, TranslationFault,
+    Access, AccessKind, FaultKind, IdentityTranslate, Privilege, Translate, TranslationFault,
 };
 use ritsu_mem::{GuestMemory, MemError};
 
@@ -33,10 +34,39 @@ pub enum StepOutcome {
     },
 }
 
+/// Why a data access faulted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DataFaultKind {
+    /// Stage-1 translation or permission fault (`DFSC` from [`FaultKind::fsc`]).
+    Translation(FaultKind),
+    /// The access translated to a physical address without (writable) backing →
+    /// synchronous external abort (`DFSC = 0b010000`).
+    External(MemError),
+    /// Unaligned access where alignment is required (`DFSC = 0b100001`).
+    Alignment,
+}
+
+/// A data abort: everything the exception layer (WP-DBT-07) needs for `ESR_EL1`/`FAR_EL1`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DataAbort {
+    /// Faulting virtual address (`FAR_EL1`): the start of the access for alignment
+    /// faults, otherwise the first byte of the part of the access that faulted.
+    pub va: u64,
+    /// `WnR`: the access was a write (stores and store probes).
+    pub write: bool,
+    /// Access size in bytes (`SAS`).
+    pub size: u8,
+    /// Fault type.
+    pub kind: DataFaultKind,
+    /// Instruction syndrome (`ISV = 1`) if the instruction form has one.
+    pub iss: Option<DataIss>,
+}
+
 /// A guest-triggered condition that stops execution of the current instruction.
 ///
 /// `PC` and all registers are left unchanged (precise state at the faulting
-/// instruction), so the exception layer can report `ELR_EL1 = PC`.
+/// instruction), so the exception layer can report `ELR_EL1 = PC` (for
+/// [`ExecError::SupervisorCall`] the preferred return address is `pc + 4`).
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ExecError {
@@ -67,15 +97,72 @@ pub enum ExecError {
         /// The memory error.
         source: MemError,
     },
+    /// `SVC #imm` (`EC = 0x15`). The preferred return address is **`pc + 4`**: a
+    /// syscall emulation (Linux user harness, WP-DBT-03) handles the call and resumes
+    /// at the next instruction.
+    #[error("svc #{imm:#x} at pc {pc:#x}")]
+    SupervisorCall {
+        /// Address of the `SVC` instruction.
+        pc: u64,
+        /// The immediate.
+        imm: u16,
+    },
+    /// `BRK #imm` (`EC = 0x3C`).
+    #[error("brk #{imm:#x} at pc {pc:#x}")]
+    Breakpoint {
+        /// Address of the `BRK` instruction.
+        pc: u64,
+        /// The comment field.
+        imm: u16,
+    },
+    /// SP alignment fault (`EC = 0x26`): a load/store with base `SP` while `SP` is not
+    /// 16-byte aligned and `SCTLR_EL1.SA/SA0` enables the check.
+    #[error("sp alignment fault at pc {pc:#x}")]
+    SpAlignment {
+        /// Address of the instruction.
+        pc: u64,
+    },
+    /// Data abort (`EC = 0x24/0x25`).
+    #[error("data abort at pc {pc:#x}: {abort:?}")]
+    DataAbort {
+        /// Address of the instruction.
+        pc: u64,
+        /// Fault details.
+        abort: DataAbort,
+    },
+    /// Not a guest exception: the instruction is valid in this configuration but not
+    /// implemented yet (e.g. `PACIASP` with `SCTLR_EL1.EnIA = 1`, `WFI`). The caller
+    /// must stop rather than guess (CLAUDE.md §3 rule 5).
+    #[error("unimplemented instruction {word:#010x} at pc {pc:#x}")]
+    Unimplemented {
+        /// Address of the instruction.
+        pc: u64,
+        /// The instruction word.
+        word: u32,
+    },
 }
 
 impl From<ExecError> for ritsu_core::Error {
     fn from(e: ExecError) -> Self {
-        ritsu_core::Error::Guest(e.to_string())
+        match e {
+            // `Error::Unimplemented` takes a static string; the word and PC are lost
+            // here, callers that need them keep the `ExecError`.
+            ExecError::Unimplemented { .. } => {
+                ritsu_core::Error::Unimplemented("A64 instruction not implemented in T0")
+            }
+            _ => ritsu_core::Error::Guest(e.to_string()),
+        }
     }
 }
 
-/// Executes one instruction with the stage-1 MMU off (identity translation).
+/// Executes one instruction with the stage-1 MMU off (identity translation) on a
+/// **read-only** view of memory: loads work, every data write fails with a bus error
+/// ([`ReadOnlyBus`]). Use [`step_mut`] to execute stores.
+///
+/// Memory is treated as Normal memory (unaligned accesses allowed unless
+/// `SCTLR_EL1.A`). Architecturally, data accesses with the stage-1 MMU off are
+/// Device-nGnRnE; that is not modelled until the walker reports memory attributes
+/// (WP-DBT-06), because the Linux user-mode harness relies on Normal memory.
 ///
 /// # Errors
 ///
@@ -84,7 +171,7 @@ pub fn step(cpu: &mut CpuState, mem: &impl GuestMemory) -> Result<StepOutcome, E
     step_with(cpu, mem, &mut IdentityTranslate::default())
 }
 
-/// Executes one instruction, fetching through `mmu`.
+/// Like [`step`], fetching and accessing data through `mmu` (read-only data).
 ///
 /// # Errors
 ///
@@ -94,8 +181,40 @@ pub fn step_with(
     mem: &impl GuestMemory,
     mmu: &mut impl Translate,
 ) -> Result<StepOutcome, ExecError> {
-    let word = fetch(cpu, mem, mmu)?;
-    execute(cpu, decode(word))
+    step_bus(cpu, &mut ReadOnlyBus::new(mem, mmu))
+}
+
+/// Executes one instruction with identity translation and read/write memory (RAM
+/// only, see [`PlainRam`]).
+///
+/// # Errors
+///
+/// See [`ExecError`]; on error the vCPU state and memory are unchanged.
+pub fn step_mut(cpu: &mut CpuState, mem: &mut impl PlainRam) -> Result<StepOutcome, ExecError> {
+    step_bus(
+        cpu,
+        &mut MemBus::new(mem, &mut IdentityTranslate::default()),
+    )
+}
+
+/// Executes one instruction on an arbitrary [`DataBus`].
+///
+/// # Errors
+///
+/// See [`ExecError`]; on error the vCPU state and memory are unchanged.
+pub fn step_bus<B: DataBus + ?Sized>(
+    cpu: &mut CpuState,
+    bus: &mut B,
+) -> Result<StepOutcome, ExecError> {
+    let word = fetch_bus(cpu, bus)?;
+    execute_with(cpu, decode(word), bus)
+}
+
+fn privilege(cpu: &CpuState) -> Privilege {
+    match cpu.el {
+        ExceptionLevel::El0 => Privilege::Unprivileged,
+        ExceptionLevel::El1 => Privilege::Privileged,
+    }
 }
 
 /// Fetches the instruction word at `PC`.
@@ -113,11 +232,7 @@ pub fn fetch(
     if pc & 3 != 0 {
         return Err(ExecError::PcAlignment { pc });
     }
-    let privilege = match cpu.el {
-        ExceptionLevel::El0 => Privilege::Unprivileged,
-        ExceptionLevel::El1 => Privilege::Privileged,
-    };
-    let access = Access::new(AccessKind::Execute, privilege);
+    let access = Access::new(AccessKind::Execute, privilege(cpu));
     let pa = mmu
         .translate(mem, GuestVirtAddr(pc), access)
         .map_err(ExecError::InstructionAbort)?;
@@ -125,13 +240,45 @@ pub fn fetch(
         .map_err(|source| ExecError::FetchBus { pc, source })
 }
 
-/// Executes an already decoded instruction located at `cpu.pc`.
+/// [`fetch`] through a [`DataBus`].
+fn fetch_bus<B: DataBus + ?Sized>(cpu: &CpuState, bus: &mut B) -> Result<u32, ExecError> {
+    let pc = cpu.pc;
+    if pc & 3 != 0 {
+        return Err(ExecError::PcAlignment { pc });
+    }
+    let access = Access::new(AccessKind::Execute, privilege(cpu));
+    let pa = bus
+        .translate(pc, access)
+        .map_err(ExecError::InstructionAbort)?;
+    let mut b = [0u8; 4];
+    bus.read(pa, &mut b)
+        .map_err(|source| ExecError::FetchBus { pc, source })?;
+    Ok(u32::from_le_bytes(b))
+}
+
+/// Executes an already decoded instruction located at `cpu.pc` **without memory**:
+/// every load or store is a bus error ([`NoMemory`]). For instructions with memory
+/// operands use [`execute_with`].
 ///
 /// # Errors
 ///
-/// [`ExecError::Undefined`] for [`Inst::Unknown`]; the state is then unchanged.
+/// [`ExecError::Undefined`] for [`Inst::Unknown`], or whatever the instruction
+/// raises; the state is then unchanged.
 pub fn execute(cpu: &mut CpuState, inst: Inst) -> Result<StepOutcome, ExecError> {
-    let mut backend = Concrete::new(cpu);
+    execute_with(cpu, inst, &mut NoMemory)
+}
+
+/// Executes an already decoded instruction located at `cpu.pc` on `bus`.
+///
+/// # Errors
+///
+/// Whatever the instruction raises; state and memory are then unchanged.
+pub fn execute_with<B: DataBus + ?Sized>(
+    cpu: &mut CpuState,
+    inst: Inst,
+    bus: &mut B,
+) -> Result<StepOutcome, ExecError> {
+    let mut backend = Concrete::new(cpu, bus);
     sem::lower(&mut backend, inst)?;
     Ok(backend.finish())
 }
@@ -560,5 +707,7 @@ mod tests {
     fn exec_error_converts_to_core_error() {
         let e: ritsu_core::Error = ExecError::PcAlignment { pc: 2 }.into();
         assert!(matches!(e, ritsu_core::Error::Guest(_)));
+        let e: ritsu_core::Error = ExecError::Unimplemented { pc: 0, word: 0 }.into();
+        assert!(matches!(e, ritsu_core::Error::Unimplemented(_)));
     }
 }
