@@ -88,6 +88,9 @@ mod tests {
 
     #[test]
     fn debug_format_is_hex() {
-        assert_eq!(format!("{:?}", GuestPhysAddr(0x10)), "GuestPhysAddr(0x0000000000000010)");
+        assert_eq!(
+            format!("{:?}", GuestPhysAddr(0x10)),
+            "GuestPhysAddr(0x0000000000000010)"
+        );
     }
 }

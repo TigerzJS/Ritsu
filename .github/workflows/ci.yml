@@ -1,0 +1,91 @@
+# Ritsu CI. Same entry points as local development: see Makefile and
+# docs/process/testing.md. Keep jobs thin; logic belongs in `make` targets.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  rust:
+    name: rust (fmt, clippy, tests, crate graph)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: make fmt-check lint test-rust graph
+
+  cpp:
+    name: cpp (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      # TODO(air2spirv): add llvm-dev / libspirv-tools-dev (or the pinned
+      # versions the CMake project requires) once compiler/air2spirv needs them.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build cmake clang clang-format spirv-tools
+      - run: make cpp
+      - name: clang-format check
+        if: matrix.compiler == 'gcc' # formatting does not depend on the compiler
+        run: make cpp-fmt-check
+
+  docs:
+    name: docs (markdown links)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: make links
+
+  # Future source of reference results for the DBT differential tests
+  # (docs/process/testing.md, "Differenztests"): real arm64 hardware executes
+  # statically linked aarch64 test programs and records register/memory state.
+  # For now it only runs the ritsu-dbt unit tests on an arm64 host, which also
+  # proves the crate is portable (no x86-only assumptions in T0).
+  # continue-on-error: the arm64 hosted runners and the reference-recording
+  # pipeline are not established yet; a failure here must not block merges
+  # until this job is promoted to required (remove the flag then).
+  dbt-reference:
+    name: dbt-reference (arm64, placeholder)
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: uname -m
+      - run: cargo test -p ritsu-dbt
