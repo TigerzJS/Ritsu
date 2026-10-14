@@ -36,7 +36,7 @@ nicht gegen einen echten Gast.
 | WP-M0-SC | shader-compiler.md + CMake-Skelett `air2spirv` mit C-ABI | shader-compiler-engineer | erledigt |
 | WP-M0-PLAT | platform.md, host-os.md + Skelett `ritsu-platform`/`ritsu-virtio`/`ritsu-vmm` | platform-engineer | erledigt |
 | WP-M0-QA | testing.md, Makefile, CI, Prüfskripte | test-engineer | erledigt |
-| WP-M0-REV | Gesamt-Review des M0-Stands | code-reviewer | in Arbeit |
+| WP-M0-REV | Gesamt-Review des M0-Stands | code-reviewer | erledigt |
 
 ## Architektur-Folgearbeiten (aus M0-Berichten)
 

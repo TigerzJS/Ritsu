@@ -85,12 +85,13 @@
      "name": "WP-M0-REV",
      "title": "Gesamt-Review des M0-Stands",
      "ms": "M0",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "",
      "accept": "",
      "owner": "code-reviewer",
-     "weight": 1
+     "weight": 1,
+     "note": "Urteil: nach Fixes freigeben. 1 major (GPU-Frontend G, an GPU-Spur), 6 minor, 3 nit; alle verteilt."
     }
    ]
   },
@@ -1296,7 +1297,8 @@
      "deps": "DBT, 06/07",
      "accept": "",
      "owner": "platform-engineer",
-     "weight": 2
+     "weight": 2,
+     "note": "Review-Befund: platform.md pinnt 1 vCPU pro P-Kern (4), MachineConfig/CLI erlauben 8. Beim Umsetzen angleichen."
     },
     {
      "id": "WP-PLAT-16",

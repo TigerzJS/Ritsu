@@ -64,7 +64,13 @@
    "wp": "M0",
    "summary": "Fundament gebaut: 5 Agents parallel, 177 Rust- + 55 C++-Tests grün, Review läuft",
    "commit": "547ec11"
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-M0-REV",
+   "summary": "Opus-Review: Logik korrekt, kein Blocker; 1 major (Teil-Commit im GPU-Frontend) an GPU-Spur, Doku-/CI-Befunde verteilt bzw. behoben",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 12:25"
+ "updatedAt": "2026-10-14 12:40"
 }

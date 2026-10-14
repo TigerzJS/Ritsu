@@ -67,7 +67,7 @@ direkt im macOS-Desktop. Dazwischen liegt ein minimales Linux-Host-System, das m
 |---|---|---|---|---|
 | `ritsu-core` | `crates/ritsu-core` | Rust | Gemeinsame Typen: Adressen, Fehler, Feature-Flags. Keine Logik. | – |
 | `ritsu-dbt` | `crates/ritsu-dbt` | Rust | AArch64-Decoder, IR, Interpreter (T0), Basis-JIT (T1), optimierender JIT (T2), Übersetzungs-Cache | [dbt.md](subsystems/dbt.md) |
-| `ritsu-mem` | `crates/ritsu-mem` | Rust | Physischer Gastspeicher, SoftMMU (Stage-1-Walk, 16K-Granule), TLB, Code-Seiten-Schutz (SMC) | [platform.md](subsystems/platform.md) |
+| `ritsu-mem` | `crates/ritsu-mem` | Rust | Physischer Gastspeicher, SoftMMU (Stage-1-Walk, 16K-Granule), TLB, Code-Seiten-Schutz (SMC) | [dbt.md](subsystems/dbt.md) |
 | `ritsu-platform` | `crates/ritsu-platform` | Rust | vmapple-Maschinenmodell: Speicherkarte, GICv3, Generic Timer, PSCI, PL011, Apple-VM-Geräte, Boot | [platform.md](subsystems/platform.md) |
 | `ritsu-virtio` | `crates/ritsu-virtio` | Rust | virtio-mmio/-pci Transport + Geräte (blk, net, input, console, sound) | [platform.md](subsystems/platform.md) |
 | `ritsu-gpu-proto` | `crates/ritsu-gpu-proto` | Rust | Definition und (De-)Serialisierung des Gast↔Host-GPU-Befehlsstroms | [gpu.md](subsystems/gpu.md) |
@@ -77,14 +77,19 @@ direkt im macOS-Desktop. Dazwischen liegt ein minimales Linux-Host-System, das m
 | Gast-Komponenten | `guest/` | C/ObjC/C++ | Nur bei Variante G: eigener Gast-GPU-Treiber (Kext + Metal-Bundle). Braucht macOS-SDK. | [guest/README.md](../guest/README.md) |
 | Host-OS-Image | `host-os/` | Shell/Config | Appliance-Linux: bootet direkt in `ritsu-vmm` im Vollbild | [host-os.md](subsystems/host-os.md) |
 
-**Abhängigkeitsregel (wird in CI geprüft, sobald die Crates Logik enthalten):**
+**Abhängigkeitsregel (wird in CI geprüft):**
 
 ```
-ritsu-vmm ──► ritsu-platform ──► ritsu-dbt ──► ritsu-mem ──► ritsu-core
-         │                 └──► ritsu-virtio ──────────────► ritsu-core
-         └──► ritsu-gpu-host ──► ritsu-gpu-proto ───────────► ritsu-core
-                          └──► air2spirv (FFI, C-ABI)
+ritsu-vmm ──► ritsu-platform ──► ritsu-dbt ────► ritsu-mem ──► ritsu-core
+    │                 ├────────► ritsu-virtio ──► ritsu-mem
+    │                 └────────► ritsu-mem
+    └──► ritsu-gpu-host ──► ritsu-gpu-proto ──► ritsu-core
+                   └──► air2spirv (FFI, C-ABI, kein Crate)
 ```
+
+Jedes Crate darf zusätzlich direkt von allen Crates abhängen, die es transitiv erreicht (z. B. `ritsu-vmm` von
+`ritsu-mem`). Verbindliche, maschinenlesbare Fassung: die Tabelle `ALLOWED` in `tools/check_crate_graph.py`, die
+`make graph` und die CI prüfen. Grafik und Tabelle werden immer im selben Commit geändert.
 
 Keine Zyklen. `ritsu-dbt` kennt keine Geräte. `ritsu-gpu-host` kennt keine CPU-Emulation. Die beiden
 Hochrisiko-Teile (DBT und GPU) sind dadurch **unabhängig voneinander entwickel- und testbar**.
