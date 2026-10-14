@@ -70,8 +70,13 @@ impl<'a> Concrete<'a> {
     }
 }
 
-/// Debug check that `v` is in canonical form for `ty`: catches descriptions that use a
-/// value at a different type than it was produced with.
+/// Debug check that `v` is in canonical form for the consuming type `ty`.
+///
+/// This is weaker than type equality: it catches a wider value used at a narrower type
+/// when its high bits are set, but not a narrower value used at a wider type. Exact
+/// type checking is the IR verifier's job (see the rules in `sem/mod.rs`); a full type
+/// tag here would make `Concrete`'s value representation differ between debug and
+/// release builds for no additional coverage.
 fn arg(ty: Ty, v: u64) -> u64 {
     debug_assert!(
         v & !ty.mask() == 0,

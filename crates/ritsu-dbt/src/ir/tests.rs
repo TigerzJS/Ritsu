@@ -504,3 +504,215 @@ fn verifier_rejects_malformed_regions() {
     };
     assert_eq!(r.verify(), Err(VerifyError::EntryParams));
 }
+
+#[test]
+fn unreachable_predecessor_does_not_constrain_join() {
+    // block0: v0 = nzcv; jump block2
+    // block1 (dead): jump block2
+    // block2: set_nzcv v0  -- dominated by block0 on every *reachable* path.
+    let r = Region {
+        blocks: vec![
+            BlockData {
+                params: vec![],
+                insts: vec![inst(Op::GetNzcv, [Some(Value(0)), None])],
+                term: Some(Terminator::Jump {
+                    dest: Block(2),
+                    args: vec![],
+                }),
+            },
+            BlockData {
+                params: vec![],
+                insts: vec![],
+                term: Some(Terminator::Jump {
+                    dest: Block(2),
+                    args: vec![],
+                }),
+            },
+            BlockData {
+                params: vec![],
+                insts: vec![inst(Op::SetNzcv { flags: Value(0) }, [None, None])],
+                term: exit(),
+            },
+        ],
+        value_types: vec![Type::Flags],
+    };
+    assert_eq!(r.verify(), Ok(()));
+
+    // The dead block itself may not use values from other blocks (nothing dominates
+    // an unreachable block) ...
+    let mut dead_use = r.clone();
+    dead_use.blocks[1].insts = vec![inst(Op::SetNzcv { flags: Value(0) }, [None, None])];
+    assert_eq!(
+        dead_use.verify(),
+        Err(VerifyError::Undefined {
+            value: Value(0),
+            block: Block(1)
+        })
+    );
+    // ... but its own earlier definitions are fine.
+    let mut dead_local = r;
+    dead_local.value_types.push(Type::Flags);
+    dead_local.blocks[1].insts = vec![
+        inst(Op::GetNzcv, [Some(Value(1)), None]),
+        inst(Op::SetNzcv { flags: Value(1) }, [None, None]),
+    ];
+    assert_eq!(dead_local.verify(), Ok(()));
+}
+
+#[test]
+fn verifier_rejects_non_canonical_constant() {
+    let r = Region {
+        blocks: vec![BlockData {
+            params: vec![],
+            insts: vec![inst(
+                Op::Iconst {
+                    ty: Ty::I32,
+                    imm: 1 << 32,
+                },
+                [Some(Value(0)), None],
+            )],
+            term: exit(),
+        }],
+        value_types: vec![Type::I32],
+    };
+    assert_eq!(
+        r.verify(),
+        Err(VerifyError::NonCanonicalConst {
+            block: Block(0),
+            ty: Ty::I32,
+            imm: 1 << 32
+        })
+    );
+    // I1 accepts only 0 and 1.
+    let mut r1 = r.clone();
+    r1.value_types = vec![Type::I1];
+    r1.blocks[0].insts[0].op = Op::Iconst { ty: Ty::I1, imm: 2 };
+    assert!(matches!(
+        r1.verify(),
+        Err(VerifyError::NonCanonicalConst { .. })
+    ));
+    r1.blocks[0].insts[0].op = Op::Iconst { ty: Ty::I1, imm: 1 };
+    assert_eq!(r1.verify(), Ok(()));
+}
+
+#[test]
+fn dominance_with_loop() {
+    // block0: v0 = 0 (I64); jump block1(v0)
+    // block1(v1): v2 = nzcv; v3 = cond_holds(eq, v2); br v3 ? block2 : block3
+    // block2: v4 = v1 + v0; jump block1(v4)     (back edge)
+    // block3: set x0 = v1; exit
+    let x0 = GpReg::x(0).unwrap();
+    let r = Region {
+        blocks: vec![
+            BlockData {
+                params: vec![],
+                insts: vec![inst(
+                    Op::Iconst {
+                        ty: Ty::I64,
+                        imm: 0,
+                    },
+                    [Some(Value(0)), None],
+                )],
+                term: Some(Terminator::Jump {
+                    dest: Block(1),
+                    args: vec![Value(0)],
+                }),
+            },
+            BlockData {
+                params: vec![Value(1)],
+                insts: vec![
+                    inst(Op::GetNzcv, [Some(Value(2)), None]),
+                    inst(
+                        Op::CondHolds {
+                            cond: Cond::Eq,
+                            flags: Value(2),
+                        },
+                        [Some(Value(3)), None],
+                    ),
+                ],
+                term: Some(Terminator::Branch {
+                    cond: Value(3),
+                    then_dest: Block(2),
+                    then_args: vec![],
+                    else_dest: Block(3),
+                    else_args: vec![],
+                }),
+            },
+            BlockData {
+                params: vec![],
+                insts: vec![inst(
+                    Op::Binary {
+                        op: BinOp::Add,
+                        ty: Ty::I64,
+                        a: Value(1),
+                        b: Value(0),
+                    },
+                    [Some(Value(4)), None],
+                )],
+                term: Some(Terminator::Jump {
+                    dest: Block(1),
+                    args: vec![Value(4)],
+                }),
+            },
+            BlockData {
+                params: vec![],
+                insts: vec![inst(
+                    Op::SetGpr {
+                        reg: x0,
+                        ty: Ty::I64,
+                        value: Value(1),
+                    },
+                    [None, None],
+                )],
+                term: exit(),
+            },
+        ],
+        value_types: vec![Type::I64, Type::I64, Type::Flags, Type::I1, Type::I64],
+    };
+    assert_eq!(r.verify(), Ok(()));
+
+    // Using the latch's value in the exit block is invalid: block2 does not dominate
+    // block3.
+    let mut bad = r.clone();
+    bad.blocks[3].insts[0].op = Op::SetGpr {
+        reg: x0,
+        ty: Ty::I64,
+        value: Value(4),
+    };
+    assert_eq!(
+        bad.verify(),
+        Err(VerifyError::Undefined {
+            value: Value(4),
+            block: Block(3)
+        })
+    );
+    // Neither may the header use it directly (only via the block parameter).
+    let mut bad = r;
+    bad.blocks[1].insts.push(inst(
+        Op::SetGpr {
+            reg: x0,
+            ty: Ty::I64,
+            value: Value(4),
+        },
+        [None, None],
+    ));
+    assert_eq!(
+        bad.verify(),
+        Err(VerifyError::Undefined {
+            value: Value(4),
+            block: Block(1)
+        })
+    );
+}
+
+/// The review case: a 16 KiB page full of `CBZ` gives a region of 8193 blocks. The
+/// verifier must handle it with memory linear in the region size (no per-block value
+/// sets); this test only checks the result, not the time.
+#[test]
+fn full_page_of_conditional_branches_verifies() {
+    let cbz = decode(asm::cb(true, false, 8, 0));
+    let insts = vec![cbz; 4096];
+    let region = Builder::lower_sequence(&insts);
+    assert_eq!(region.blocks().len(), 2 * 4096 + 1);
+    assert_eq!(region.verify(), Ok(()));
+}

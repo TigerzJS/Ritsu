@@ -410,6 +410,16 @@ pub enum VerifyError {
         /// Using block.
         block: Block,
     },
+    /// An `Iconst` immediate has bits set above its type's width.
+    #[error("{block}: constant {imm:#x} is not a canonical {ty:?}")]
+    NonCanonicalConst {
+        /// Block containing the constant.
+        block: Block,
+        /// Declared type.
+        ty: Ty,
+        /// The immediate.
+        imm: u64,
+    },
     /// A value is defined more than once, or a result slot does not match the op.
     #[error("{0} is defined more than once or by a mismatching result slot")]
     BadDefinition(Value),
@@ -444,9 +454,14 @@ impl Region {
     }
 
     /// Checks structural and type invariants: every block terminated, branch targets
-    /// exist with matching argument counts, every use has the type its operation
-    /// requires, every value is defined exactly once and every use is reached only
-    /// through paths that define it (SSA dominance).
+    /// exist with matching argument counts, constants are canonical, every use has the
+    /// type its operation requires, every value is defined at most once and every use is
+    /// dominated by its definition (SSA). Values in the value table that are never
+    /// defined are allowed as long as nothing uses them.
+    ///
+    /// Cost: O(blocks + values + edges) memory; time is dominated by the iterative
+    /// dominator computation (Cooper, Harvey, Kennedy: "A Simple, Fast Dominance
+    /// Algorithm"), which needs few passes on the reducible graphs the builder emits.
     ///
     /// # Errors
     ///
@@ -461,31 +476,43 @@ impl Region {
         {
             return Err(VerifyError::EntryParams);
         }
-        self.verify_definitions()?;
-        let preds = self.verify_edges()?;
-        self.verify_uses(&preds)
+        let sites = self.verify_definitions()?;
+        let succs = self.verify_edges()?;
+        let dom = Dominance::compute(&succs);
+        self.verify_uses(&sites, &dom)
     }
 
-    /// Every value has exactly one definition whose slot type matches.
-    fn verify_definitions(&self) -> Result<(), VerifyError> {
-        let mut defined = vec![false; self.value_types.len()];
-        let mut define = |v: Value, ty: Option<Type>| -> Result<(), VerifyError> {
-            match (defined.get_mut(v.index()), self.value_type(v)) {
-                (Some(slot), Some(found)) if !*slot && ty.is_none_or(|t| t == found) => {
-                    *slot = true;
+    /// Every value is defined at most once, by a result slot whose type matches, and
+    /// every constant is canonical. Returns the definition site of each value.
+    fn verify_definitions(&self) -> Result<Vec<Option<Site>>, VerifyError> {
+        let mut sites: Vec<Option<Site>> = vec![None; self.value_types.len()];
+        let mut define = |v: Value, ty: Option<Type>, site: Site| -> Result<(), VerifyError> {
+            match (sites.get_mut(v.index()), self.value_type(v)) {
+                (Some(slot @ None), Some(found)) if ty.is_none_or(|t| t == found) => {
+                    *slot = Some(site);
                     Ok(())
                 }
                 _ => Err(VerifyError::BadDefinition(v)),
             }
         };
-        for data in &self.blocks {
+        for (b, data) in self.blocks.iter().enumerate() {
+            let block = block_at(b);
             for &p in &data.params {
-                define(p, None)?;
+                define(p, None, Site { block: b, pos: 0 })?;
             }
-            for inst in &data.insts {
+            for (k, inst) in data.insts.iter().enumerate() {
+                if let Op::Iconst { ty, imm } = inst.op
+                    && imm & !ty.mask() != 0
+                {
+                    return Err(VerifyError::NonCanonicalConst { block, ty, imm });
+                }
+                let site = Site {
+                    block: b,
+                    pos: k + 1,
+                };
                 for (slot, ty) in inst.results.iter().zip(inst.op.result_types()) {
                     match (slot, ty) {
-                        (Some(v), Some(_)) => define(*v, ty)?,
+                        (Some(v), Some(_)) => define(*v, ty, site)?,
                         (None, None) => {}
                         (Some(v), None) => return Err(VerifyError::BadDefinition(*v)),
                         // A result the op produces but nobody named: harmless.
@@ -494,16 +521,17 @@ impl Region {
                 }
             }
         }
-        Ok(())
+        Ok(sites)
     }
 
     /// Terminators present, targets valid, argument counts and types match. Returns the
-    /// predecessor lists.
-    fn verify_edges(&self) -> Result<Vec<Vec<Block>>, VerifyError> {
-        let mut preds = vec![Vec::new(); self.blocks.len()];
+    /// successor lists (block indices).
+    fn verify_edges(&self) -> Result<Vec<Vec<usize>>, VerifyError> {
+        let mut succs = Vec::with_capacity(self.blocks.len());
         for (i, data) in self.blocks.iter().enumerate() {
             let from = block_at(i);
             let term = data.term.as_ref().ok_or(VerifyError::Unterminated(from))?;
+            let mut list = Vec::with_capacity(2);
             for (to, args) in term.successors() {
                 let target = self
                     .block(to)
@@ -519,115 +547,52 @@ impl Region {
                 for (&arg, &param) in args.iter().zip(&target.params) {
                     self.check_type(arg, self.value_type(param), from)?;
                 }
-                if let Some(list) = preds.get_mut(to.index()) {
-                    list.push(from);
-                }
+                list.push(to.index());
             }
+            succs.push(list);
         }
-        Ok(preds)
+        Ok(succs)
     }
 
-    /// Dominance via "available on every path" dataflow, then a linear scan per block.
-    fn verify_uses(&self, preds: &[Vec<Block>]) -> Result<(), VerifyError> {
-        let n = self.value_types.len();
-        let reachable = self.reachable(preds.len());
-        // avail_out[b]: values defined on every path from the entry to the end of b.
-        // Optimistic start (all) for reachable blocks, refined to the greatest fixpoint.
-        let mut avail_out: Vec<Vec<bool>> = reachable.iter().map(|&r| vec![r; n]).collect();
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for (i, data) in self.blocks.iter().enumerate() {
-                if !reachable[i] {
-                    continue;
-                }
-                let mut avail = self.avail_in(i, preds, &avail_out, n);
-                for v in defs(data) {
-                    mark(&mut avail, v);
-                }
-                if avail != avail_out[i] {
-                    avail_out[i] = avail;
-                    changed = true;
-                }
-            }
-        }
-        for (i, data) in self.blocks.iter().enumerate() {
-            let block = block_at(i);
-            let mut avail = if reachable[i] {
-                self.avail_in(i, preds, &avail_out, n)
-            } else {
-                vec![false; n]
-            };
-            let use_value = |v: Value, avail: &[bool]| {
-                if avail.get(v.index()).copied().unwrap_or(false) {
+    /// Every use is dominated by its definition: earlier in the same block, or in a
+    /// block that dominates the using block. Block arguments are uses at the
+    /// terminator of the branching block. Unreachable blocks may only use their own
+    /// earlier definitions.
+    fn verify_uses(&self, sites: &[Option<Site>], dom: &Dominance) -> Result<(), VerifyError> {
+        for (b, data) in self.blocks.iter().enumerate() {
+            let block = block_at(b);
+            let check = |v: Value, pos: usize| -> Result<(), VerifyError> {
+                let ok = match sites.get(v.index()).copied().flatten() {
+                    Some(def) if def.block == b => def.pos < pos,
+                    Some(def) => dom.dominates(def.block, b),
+                    None => false,
+                };
+                if ok {
                     Ok(())
                 } else {
                     Err(VerifyError::Undefined { value: v, block })
                 }
             };
-            for &p in &data.params {
-                mark(&mut avail, p);
-            }
-            for inst in &data.insts {
+            for (k, inst) in data.insts.iter().enumerate() {
                 for (v, ty) in inst.op.operands().into_iter().flatten() {
-                    use_value(v, &avail)?;
+                    check(v, k + 1)?;
                     self.check_type(v, Some(ty), block)?;
                 }
-                for &v in inst.results.iter().flatten() {
-                    mark(&mut avail, v);
-                }
             }
+            let term_pos = data.insts.len() + 1;
             if let Some(term) = &data.term {
                 if let Some((v, ty)) = term.operands() {
-                    use_value(v, &avail)?;
+                    check(v, term_pos)?;
                     self.check_type(v, Some(ty), block)?;
                 }
                 for (_, args) in term.successors() {
                     for &a in args {
-                        use_value(a, &avail)?;
+                        check(a, term_pos)?;
                     }
                 }
             }
         }
         Ok(())
-    }
-
-    fn avail_in(
-        &self,
-        i: usize,
-        preds: &[Vec<Block>],
-        avail_out: &[Vec<bool>],
-        n: usize,
-    ) -> Vec<bool> {
-        if i == Self::ENTRY.index() {
-            return vec![false; n];
-        }
-        let mut avail: Option<Vec<bool>> = None;
-        for p in preds.get(i).into_iter().flatten() {
-            let Some(out) = avail_out.get(p.index()) else {
-                continue;
-            };
-            avail = Some(match avail {
-                None => out.clone(),
-                Some(a) => a.iter().zip(out).map(|(&x, &y)| x && y).collect(),
-            });
-        }
-        avail.unwrap_or_else(|| vec![false; n])
-    }
-
-    fn reachable(&self, n: usize) -> Vec<bool> {
-        let mut seen = vec![false; n];
-        let mut stack = vec![Self::ENTRY];
-        while let Some(b) = stack.pop() {
-            match seen.get_mut(b.index()) {
-                Some(s) if !*s => *s = true,
-                _ => continue,
-            }
-            if let Some(term) = self.block(b).and_then(|d| d.term.as_ref()) {
-                stack.extend(term.successors().map(|(to, _)| to));
-            }
-        }
-        seen
     }
 
     fn check_type(
@@ -650,21 +615,155 @@ impl Region {
     }
 }
 
-/// Marks `v` as available (out-of-range values were rejected by
-/// `verify_definitions` already; ignore them here rather than index out of bounds).
-fn mark(avail: &mut [bool], v: Value) {
-    if let Some(slot) = avail.get_mut(v.index()) {
-        *slot = true;
-    }
+/// Where a value is defined: block index and position inside it (0 = block parameter,
+/// `k + 1` = instruction `k`; the terminator uses position `insts.len() + 1`).
+#[derive(Clone, Copy, Debug)]
+struct Site {
+    block: usize,
+    pos: usize,
 }
 
-/// Values defined in a block (parameters and results).
-fn defs(data: &BlockData) -> impl Iterator<Item = Value> + '_ {
-    data.params.iter().copied().chain(
-        data.insts
-            .iter()
-            .flat_map(|inst| inst.results.iter().flatten().copied()),
-    )
+/// Dominator tree of the blocks reachable from the entry, with pre/post-order numbers
+/// for O(1) dominance queries.
+#[derive(Debug)]
+struct Dominance {
+    /// Pre-order number in the dominator tree; `None` for unreachable blocks.
+    pre: Vec<Option<usize>>,
+    /// Post-order number in the dominator tree (valid where `pre` is `Some`).
+    post: Vec<usize>,
+}
+
+impl Dominance {
+    const UNDEF: usize = usize::MAX;
+
+    /// `succs[b]`: successor block indices of block `b` (all in range, checked by
+    /// `verify_edges`). Block 0 is the entry.
+    fn compute(succs: &[Vec<usize>]) -> Self {
+        let n = succs.len();
+        let succ = |b: usize| succs.get(b).map_or(&[][..], Vec::as_slice);
+
+        // Reverse post-order of the reachable blocks (iterative DFS).
+        let mut rpo_num = vec![Self::UNDEF; n];
+        let mut postorder = Vec::with_capacity(n);
+        let mut visited = vec![false; n];
+        let mut stack: Vec<(usize, usize)> = vec![(0, 0)];
+        if let Some(v) = visited.get_mut(0) {
+            *v = true;
+        }
+        while let Some(top) = stack.last_mut() {
+            let (b, next) = *top;
+            if let Some(&s) = succ(b).get(next) {
+                top.1 += 1;
+                if let Some(v) = visited.get_mut(s)
+                    && !*v
+                {
+                    *v = true;
+                    stack.push((s, 0));
+                }
+            } else {
+                postorder.push(b);
+                stack.pop();
+            }
+        }
+        let rpo: Vec<usize> = postorder.iter().rev().copied().collect();
+        for (k, &b) in rpo.iter().enumerate() {
+            rpo_num[b] = k;
+        }
+
+        // Predecessors restricted to reachable blocks: unreachable predecessors do not
+        // constrain dominance.
+        let mut preds: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for &b in &rpo {
+            for &s in succ(b) {
+                if let Some(list) = preds.get_mut(s) {
+                    list.push(b);
+                }
+            }
+        }
+
+        // Cooper/Harvey/Kennedy iterative immediate dominators.
+        let mut idom = vec![Self::UNDEF; n];
+        if n > 0 {
+            idom[0] = 0;
+        }
+        let intersect = |idom: &[usize], mut a: usize, mut b: usize| -> usize {
+            while a != b {
+                while rpo_num[a] > rpo_num[b] {
+                    a = idom[a];
+                }
+                while rpo_num[b] > rpo_num[a] {
+                    b = idom[b];
+                }
+            }
+            a
+        };
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for &b in rpo.iter().skip(1) {
+                let mut new = Self::UNDEF;
+                for &p in &preds[b] {
+                    if idom[p] == Self::UNDEF {
+                        continue;
+                    }
+                    new = if new == Self::UNDEF {
+                        p
+                    } else {
+                        intersect(&idom, p, new)
+                    };
+                }
+                if new != Self::UNDEF && idom[b] != new {
+                    idom[b] = new;
+                    changed = true;
+                }
+            }
+        }
+
+        // Dominator tree children, then pre/post numbering (iterative DFS).
+        let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for &b in rpo.iter().skip(1) {
+            if let Some(list) = children.get_mut(idom[b]) {
+                list.push(b);
+            }
+        }
+        let mut pre = vec![None; n];
+        let mut post = vec![0; n];
+        let (mut pre_n, mut post_n) = (0, 0);
+        let mut stack: Vec<(usize, usize)> = Vec::new();
+        if n > 0 {
+            pre[0] = Some(0);
+            pre_n = 1;
+            stack.push((0, 0));
+        }
+        while let Some(top) = stack.last_mut() {
+            let (b, next) = *top;
+            if let Some(&c) = children[b].get(next) {
+                top.1 += 1;
+                pre[c] = Some(pre_n);
+                pre_n += 1;
+                stack.push((c, 0));
+            } else {
+                post[b] = post_n;
+                post_n += 1;
+                stack.pop();
+            }
+        }
+        Self { pre, post }
+    }
+
+    /// Whether block `a` dominates block `b` (reflexive). False if either is
+    /// unreachable.
+    fn dominates(&self, a: usize, b: usize) -> bool {
+        match (
+            self.pre.get(a).copied().flatten(),
+            self.pre.get(b).copied().flatten(),
+        ) {
+            (Some(pa), Some(pb)) => {
+                pa <= pb && self.post.get(b).copied() <= self.post.get(a).copied()
+            }
+            _ => false,
+        }
+    }
 }
 
 /// The block with index `i`. Regions never come near `u32::MAX` blocks (one guest page

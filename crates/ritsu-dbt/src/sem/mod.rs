@@ -16,8 +16,12 @@
 //!   are opaque (`Self::V` is only `Copy`), so a data-dependent Rust `if` does not even
 //!   type-check; data-dependent choices go through [`Sem::select`] and [`Sem::branch`].
 //! * Every value is typed by the [`Ty`] passed to the operation that consumes it; a
-//!   value must be used at the type it was produced with (the IR verifier and debug
-//!   builds of [`concrete::Concrete`] check this).
+//!   value must be used at the type it was produced with. The IR verifier
+//!   ([`crate::ir::Region::verify`]) checks this exactly, so every description must be
+//!   covered by a test that lowers it through [`crate::ir::Builder`] and verifies the
+//!   result. Debug builds of [`concrete::Concrete`] only check that each operand is
+//!   canonical for the consuming type: that catches a wide value used at a narrower
+//!   type (with high bits set), not a narrow value used at a wider type.
 //! * All operations that can raise ([`Sem::raise`], later loads/stores) come **before**
 //!   the first architectural write, so a raising instruction leaves the state unchanged
 //!   (precise exceptions). [`Sem::raise`] is the last operation of a description.

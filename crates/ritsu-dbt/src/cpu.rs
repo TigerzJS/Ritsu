@@ -349,19 +349,6 @@ impl CpuState {
             GpReg::Zr => {}
         }
     }
-
-    /// Reads a register at operand width: the low 32 bits if `!sf` (`Wn`), else 64.
-    #[must_use]
-    pub fn read_sized(&self, r: GpReg, sf: bool) -> u64 {
-        let v = self.read(r);
-        if sf { v } else { v & 0xffff_ffff }
-    }
-
-    /// Writes a register at operand width. A 32-bit write zero-extends to 64 bits, as
-    /// every `Wd` write does in AArch64 (including `WSP`).
-    pub fn write_sized(&mut self, r: GpReg, sf: bool, value: u64) {
-        self.write(r, if sf { value } else { value & 0xffff_ffff });
-    }
 }
 
 #[cfg(test)]
@@ -404,12 +391,17 @@ mod tests {
 
     #[test]
     fn sized_write_zero_extends() {
+        // Operand-width access is semantics and lives in the semantic layer only
+        // (`Sem::gpr`/`Sem::set_gpr`); this checks it lands in `CpuState` correctly.
+        use crate::sem::{Sem, Ty, concrete::Concrete};
         let mut cpu = CpuState::new(0);
         let x3 = GpReg::x(3).unwrap();
         cpu.write(x3, u64::MAX);
-        cpu.write_sized(x3, false, 0xdead_beef_1234_5678);
+        let mut c = Concrete::new(&mut cpu);
+        let v = c.imm(Ty::I32, 0xdead_beef_1234_5678);
+        c.set_gpr(x3, Ty::I32, v);
+        assert_eq!(c.gpr(GpReg::Zr, Ty::I32), 0);
         assert_eq!(cpu.read(x3), 0x1234_5678);
-        assert_eq!(cpu.read_sized(GpReg::Zr, false), 0);
     }
 
     #[test]

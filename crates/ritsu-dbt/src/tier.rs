@@ -1,8 +1,8 @@
 //! Translation tiers and the translation cache — interface sketch (M0).
 //!
 //! Nothing here is implemented yet; the types pin down the vocabulary that T1
-//! (WP-DBT-08), T2 (WP-DBT-15) and the persistent cache (WP-DBT-16) build on. The design
-//! rationale is in `docs/subsystems/dbt.md` §4 and §11.
+//! (WP-DBT-12), T2 (WP-DBT-17) and the persistent cache (WP-DBT-18) build on. The design
+//! rationale is in `docs/subsystems/dbt.md` §5 and §14.
 //!
 //! Key ideas:
 //!

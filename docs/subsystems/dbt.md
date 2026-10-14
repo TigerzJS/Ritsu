@@ -193,7 +193,13 @@ Abweichungen von der Skizze oben, jeweils mit Grund:
   und ändert nie die Architekturwirkung.
 * **Reihenfolge-Regeln** statt Transaktionen: Alles, was eine Exception auslösen kann, kommt vor dem ersten
   Architektur-Schreibzugriff; höchstens ein Kontrolltransfer pro Befehl, als letzte Operation. Debug-Builds von
-  `Concrete` prüfen beides und zusätzlich, dass jeder Wert mit dem Typ benutzt wird, mit dem er erzeugt wurde.
+  `Concrete` prüfen beides.
+* **Typgleichheit** (jeder Wert wird mit dem Typ benutzt, mit dem er erzeugt wurde) prüft exakt nur der
+  IR-Verifier. Deshalb braucht **jede Beschreibung einen Test, der sie über `ir::Builder` absenkt und
+  verifiziert** (für alle M0-Befehle in `ir/tests.rs` vorhanden). Debug-Builds von `Concrete` prüfen nur, ob ein
+  Operand für den verbrauchenden Typ kanonisch ist. Das fängt einen zu breiten Wert mit gesetzten hohen Bits ab,
+  aber keinen zu schmalen. Ein Typ-Tag in `Concrete` hätte die Wertdarstellung zwischen Debug und Release
+  verschieden gemacht, ohne mehr abzudecken als der Verifier.
 * Speicher- und Systemregister-Operationen (`load`, `store`, `MemAttrs`, …) kommen mit WP-DBT-02/-06/-07 dazu.
 
 Prüfung: Operations-Konformanztests (`sem/conformance.rs`) prüfen jede Operation des `Concrete`-Backends über das
@@ -252,7 +258,13 @@ Die IR existiert nur für **T2** (und Analysen). T0 und T1 brauchen sie dank E-3
   `Type`, `Op` (1:1 die `Sem`-Operationen, §3.2.1), `Terminator` (`Jump`, `Branch`, `Exit`), `Exit` (`Direct`,
   `Indirect`, `Raise`). PC-Werte sind Offsets zum Regionseinstieg (`pc_offset`, `PcRel`, `Exit::Direct`).
   `ir::Builder` ist das `Sem`-Backend, das die IR erzeugt; `Region::verify` prüft Terminierung, Sprungziele,
-  Argumentanzahl, Typen, Einmal-Definition und Dominanz (Verfügbarkeit auf allen Pfaden). Speicher-, PAC-,
+  Argumentanzahl, kanonische Konstanten, Typen, höchstens eine Definition pro Wert und Dominanz. Die
+  Dominanz läuft über einen Dominatorbaum (Cooper/Harvey/Kennedy) mit Pre-/Post-Nummern, also mit Speicher
+  linear in Blöcken + Werten; unerreichbare Blöcke schränken nichts ein und dürfen nur ihre eigenen Werte
+  benutzen. **Hinweis für WP-DBT-17:** Die Laufzeit der iterativen Dominatorberechnung ist für die reduziblen
+  Graphen des Builders klein, wurde aber nicht gemessen; eine Seite voller `CBZ` ergibt 8193 Blöcke (Test
+  vorhanden). Vor dem Einsatz im T2-Pfad gehört der Verifier in einen Benchmark (`bench/`), und T2 braucht
+  ohnehin eine Regionsgrößengrenze (Kompilierzeit), die dann auch hier gilt. Speicher-, PAC-,
   FP- und Helper-Operationen aus §4.2 folgen mit den jeweiligen WPs; Codegen erst in WP-DBT-17.
 
 ### 4.2 Operationen (Auswahl)
