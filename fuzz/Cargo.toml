@@ -1,0 +1,86 @@
+# Fuzz harnesses (docs/process/testing.md section 5). Own [workspace]: not a member of the main
+# workspace, because cargo-fuzz needs nightly while the project builds on stable.
+[package]
+name = "ritsu-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "UNLICENSED"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+ritsu-core = { path = "../crates/ritsu-core" }
+ritsu-mem = { path = "../crates/ritsu-mem" }
+ritsu-dbt = { path = "../crates/ritsu-dbt" }
+ritsu-virtio = { path = "../crates/ritsu-virtio" }
+ritsu-platform = { path = "../crates/ritsu-platform" }
+ritsu-gpu-proto = { path = "../crates/ritsu-gpu-proto" }
+ritsu-gpu-host = { path = "../crates/ritsu-gpu-host" }
+
+[workspace]
+
+[lib]
+name = "ritsu_fuzz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fuzz_gpu_proto_decode"
+path = "fuzz_targets/fuzz_gpu_proto_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_virtqueue_walk"
+path = "fuzz_targets/fuzz_virtqueue_walk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mmio_bus"
+path = "fuzz_targets/fuzz_mmio_bus.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_aarch64_decode"
+path = "fuzz_targets/fuzz_aarch64_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_t0_step"
+path = "fuzz_targets/fuzz_t0_step.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_gpu_proto_hello"
+path = "fuzz_targets/fuzz_gpu_proto_hello.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_gpu_proto_reply"
+path = "fuzz_targets/fuzz_gpu_proto_reply.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_gpu_host_session"
+path = "fuzz_targets/fuzz_gpu_host_session.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1

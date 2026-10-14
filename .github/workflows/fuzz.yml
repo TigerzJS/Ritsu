@@ -1,0 +1,221 @@
+# Ritsu fuzzing (docs/process/testing.md section 5.4).
+#
+#   pull_request       smoke: 60 s per target against the checked-in seed corpus and the
+#                      regression inputs (fuzz/regressions/). A crash, timeout or OOM fails the job.
+#   schedule (nightly) long run: 30 min per target with a corpus that grows between nights
+#                      (GitHub Actions cache, minimised after each run). Findings fail the job.
+#   workflow_dispatch  manual run; `minutes` sets the time per target.
+#
+# Rust targets: cargo-fuzz (nightly) via fuzz/tools/smoke.sh -> `make fuzz-smoke-rust`.
+# C++ target:   libFuzzer fuzz_air_sniff (clang) via fuzz/tools/smoke_cpp.sh -> `make fuzz-smoke-cpp`.
+# C++ target:   libFuzzer fuzz_air_bitcode (clang, LLVM 18) via
+#               compiler/air2spirv/fuzz/run_fuzz_air_bitcode.sh: fork mode + triage.py, which fails
+#               only for findings in air2spirv's code; findings inside LLVM 18's bitcode reader are
+#               known (docs/subsystems/shader-compiler.md §11.4, WP-ARCH-04) and kept as artifacts.
+# Keep the Rust target list in sync with fuzz/Cargo.toml ([[bin]] entries); the "targets" job
+# below fails if they drift apart.
+name: fuzz
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Minutes per target (manual run)"
+        default: "10"
+
+concurrency:
+  group: fuzz-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  FUZZ_REQUIRED: "1" # in CI a missing tool is an error, never a silent skip
+  # Seconds per target: 60 on PRs, 30 min nightly; manual runs override it (step "Time per target").
+  FUZZ_TIME: ${{ github.event_name == 'schedule' && '1800' || '60' }}
+
+jobs:
+  targets:
+    name: fuzz targets match fuzz/Cargo.toml
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the matrix with the [[bin]] list
+        run: |
+          expected="fuzz_aarch64_decode fuzz_gpu_host_session fuzz_gpu_proto_decode fuzz_gpu_proto_hello fuzz_gpu_proto_reply fuzz_mmio_bus fuzz_t0_step fuzz_virtqueue_walk"
+          actual=$(sed -n 's/^name = "\(fuzz_[a-z0-9_]*\)"$/\1/p' fuzz/Cargo.toml | sort | tr '\n' ' ' | sed 's/ $//')
+          files=$(ls fuzz/fuzz_targets | sed 's/\.rs$//' | sort | tr '\n' ' ' | sed 's/ $//')
+          echo "matrix: $expected"; echo "Cargo.toml: $actual"; echo "files: $files"
+          [ "$expected" = "$actual" ] && [ "$expected" = "$files" ]
+
+  rust:
+    name: rust (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 90 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_aarch64_decode
+          - fuzz_gpu_host_session
+          - fuzz_gpu_proto_decode
+          - fuzz_gpu_proto_hello
+          - fuzz_gpu_proto_reply
+          - fuzz_mmio_bus
+          - fuzz_t0_step
+          - fuzz_virtqueue_walk
+    env:
+      FUZZ_WORK: ${{ github.workspace }}/.fuzz-work
+    steps:
+      - uses: actions/checkout@v4
+      - name: Time per target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a positive integer" >&2; exit 1;; esac
+          echo "FUZZ_TIME=$((MINUTES * 60))" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+          key: fuzz-${{ matrix.target }}
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version "^0.13"
+      # Nightly only: the corpus grows between runs and lives in the cache, not in Git (testing.md 5.3).
+      - name: Restore corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: .fuzz-work/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz
+        run: sh fuzz/tools/smoke.sh ${{ matrix.target }}
+      - name: Minimise corpus
+        if: github.event_name != 'pull_request'
+        run: cargo +nightly fuzz cmin ${{ matrix.target }} ".fuzz-work/${{ matrix.target }}"
+      - name: Save corpus
+        if: github.event_name != 'pull_request' && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: .fuzz-work/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+  cpp:
+    name: cpp (fuzz_air_sniff)
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 90 }}
+    env:
+      FUZZ_WORK: ${{ github.workspace }}/.fuzz-work
+    steps:
+      - uses: actions/checkout@v4
+      - name: Time per target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a positive integer" >&2; exit 1;; esac
+          echo "FUZZ_TIME=$((MINUTES * 60))" >> "$GITHUB_ENV"
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build cmake clang spirv-tools spirv-headers libclang-rt-18-dev
+      - name: Restore corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: .fuzz-work/fuzz_air_sniff
+          key: fuzz-corpus-fuzz_air_sniff-${{ github.run_id }}
+          restore-keys: fuzz-corpus-fuzz_air_sniff-
+      - name: Fuzz
+        run: make fuzz-smoke-cpp
+      - name: Minimise corpus
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p .fuzz-work/min
+          build/air2spirv-fuzz/fuzz/fuzz_air_sniff -merge=1 -timeout=5 -rss_limit_mb=2048 \
+            .fuzz-work/min .fuzz-work/fuzz_air_sniff
+          rm -rf .fuzz-work/fuzz_air_sniff && mv .fuzz-work/min .fuzz-work/fuzz_air_sniff
+      - name: Save corpus
+        if: github.event_name != 'pull_request' && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: .fuzz-work/fuzz_air_sniff
+          key: fuzz-corpus-fuzz_air_sniff-${{ github.run_id }}
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-fuzz_air_sniff
+          path: fuzz/artifacts/fuzz_air_sniff/
+          if-no-files-found: warn
+          retention-days: 30
+
+  cpp-llvm:
+    name: cpp (fuzz_air_bitcode, LLVM 18)
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 90 }}
+    env:
+      FUZZ_WORK: ${{ github.workspace }}/.fuzz-work
+      ASAN_SYMBOLIZER_PATH: /usr/lib/llvm-18/bin/llvm-symbolizer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Time per target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          case "$MINUTES" in ''|*[!0-9]*) echo "minutes must be a positive integer" >&2; exit 1;; esac
+          echo "FUZZ_TIME=$((MINUTES * 60))" >> "$GITHUB_ENV"
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build cmake clang spirv-tools \
+            spirv-headers libclang-rt-18-dev llvm-18-dev libzstd-dev python3
+      - name: Restore corpus
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: .fuzz-work/fuzz_air_bitcode
+          key: fuzz-corpus-fuzz_air_bitcode-${{ github.run_id }}
+          restore-keys: fuzz-corpus-fuzz_air_bitcode-
+      - name: Fuzz and triage
+        run: sh compiler/air2spirv/fuzz/run_fuzz_air_bitcode.sh
+      - name: Minimise corpus
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p .fuzz-work/min
+          build/air2spirv-fuzz-llvm/fuzz/fuzz_air_bitcode -merge=1 -timeout=10 -rss_limit_mb=2048 \
+            .fuzz-work/min .fuzz-work/fuzz_air_bitcode
+          rm -rf .fuzz-work/fuzz_air_bitcode && mv .fuzz-work/min .fuzz-work/fuzz_air_bitcode
+      - name: Save corpus
+        if: github.event_name != 'pull_request' && !cancelled()
+        uses: actions/cache/save@v4
+        with:
+          path: .fuzz-work/fuzz_air_bitcode
+          key: fuzz-corpus-fuzz_air_bitcode-${{ github.run_id }}
+      # Always: findings inside LLVM are expected until WP-ARCH-04 and are input for WP-SC-07.
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-fuzz_air_bitcode
+          path: fuzz/artifacts/fuzz_air_bitcode/
+          if-no-files-found: ignore
+          retention-days: 30

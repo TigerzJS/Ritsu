@@ -1,0 +1,166 @@
+{
+ "project": "Ritsu",
+ "goal": "M1 „Erster Befehl“: statisches aarch64-Linux-ELF läuft über T0, Differenztests grün",
+ "goal_detail": "Pipeline angehalten auf Wunsch des Projektinhabers (Runde abgeschlossen). Nächste Schritte nach Freigaben O-8, O-13…O-17: WP-DBT-09/07 → WP-DBT-03 (M1), WP-ARCH-04, WP-GPU-03.",
+ "milestones": [
+  {
+   "id": "M0",
+   "name": "Fundament",
+   "status": "done",
+   "criterion": "Struktur, ADRs, CI grün, Skelette mit Tests"
+  },
+  {
+   "id": "M1",
+   "name": "Erster Befehl",
+   "status": "wip",
+   "criterion": "aarch64-Linux-ELF läuft über T0, Differenztests grün"
+  },
+  {
+   "id": "M2",
+   "name": "JIT",
+   "status": "open",
+   "criterion": "T1 differenzgetestet, erste Q-PERF-1-Zahlen"
+  },
+  {
+   "id": "M3",
+   "name": "Kernel spricht",
+   "status": "open",
+   "criterion": "XNU gibt Boot-Log über PL011 aus"
+  },
+  {
+   "id": "M4",
+   "name": "Erstes Dreieck",
+   "status": "open",
+   "criterion": "Metal-Dreieck auf RTX 4050 und Iris Xe"
+  },
+  {
+   "id": "M5",
+   "name": "Desktop",
+   "status": "open",
+   "criterion": "macOS-27-Desktop, WindowServer über Metal→Vulkan"
+  },
+  {
+   "id": "M6",
+   "name": "Benutzbar",
+   "status": "open",
+   "criterion": "AOT-Cache, T2, Q-PERF-Ziele M6, Appliance installierbar"
+  },
+  {
+   "id": "M7",
+   "name": "Metal-Breite",
+   "status": "open",
+   "criterion": "AB Tier 2, ICB, Mesh, Ray Tracing, Metal 4"
+  },
+  {
+   "id": "M8",
+   "name": "Reif",
+   "status": "open",
+   "criterion": "Q-PERF M8, Dauer-Fuzzing, ≥ 3 macOS-Builds"
+  }
+ ],
+ "runs": [
+  {
+   "at": "2026-10-14",
+   "wp": "M0",
+   "summary": "Fundament gebaut: 5 Agents parallel, 177 Rust- + 55 C++-Tests grün, Review läuft",
+   "commit": "547ec11"
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-M0-REV",
+   "summary": "Opus-Review: Logik korrekt, kein Blocker; 1 major (Teil-Commit im GPU-Frontend) an GPU-Spur, Doku-/CI-Befunde verteilt bzw. behoben",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-DBT-01",
+   "summary": "Semantik einmalig als Sem-Trait, T0 über Concrete, IR-Builder + Verifier; 64 Tests; TLB clean-room neu formuliert",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-QA-01",
+   "summary": "Fuzzing aller Gast-Parser in CI; erster Fund (MMIO-Ausrichtung) sofort per WP-PLAT-20 behoben",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-GPU-01",
+   "summary": "GPU-Protokoll v1: Aushandlung + Antwortkanal; stiller Teil-Commit (M0-Review) per Opcode-Klassen ausgeschlossen. M0 abgeschlossen.",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-01",
+   "summary": "Sem-Review: trägt mit Änderungen (P1 an WP-DBT-02); ADR-0009 Gastspeicher als Proposed – wartet auf deine Freigabe (O-13)",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-SC-03",
+   "summary": "SPIR-V-Infrastruktur: deterministischer Builder, spirv-val in-process, Test-Matcher ohne stille Fehlerfälle; 137 C++-Tests",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-02",
+   "summary": "ADR-0010 DBT↔Plattform als Proposed (Hybrid: Hooks + Exit-Loop + atomare Signale) – wartet auf deine Freigabe (O-14)",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-QA-04/08",
+   "summary": "Benchmark-Suite + Fuzz-Regressionen in cargo test; Messung deckte −25…35 % T0-Verlust im laufenden WP-DBT-02 auf (an CPU-Spur gemeldet)",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-06",
+   "summary": "Normative Prüfung gegen Arm DDI 0487 M.d; ADR-0010 an 3 Stellen korrigiert, ADR-0009 um ROM-Regionen ergänzt",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-GPU-02",
+   "summary": "Metal-Objektmodell vollständig und gegen SDK-Werte geprüft; Review fand 4 Fälle, in denen ungültiges Metal angenommen wurde – behoben",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-07",
+   "summary": "ADR-0011 Familienpolitik (Proposed): Ziel Apple7 auf beiden GPUs; Mac2 in macOS 27 deprecated; Iris hat ETC2/ASTC LDR nativ – wartet auf Freigabe (O-15)",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-DBT-02",
+   "summary": "Integer-Basis-ISA in T0, 0 Abweichungen gg. LLVM und qemu, T0 schneller als vorher (142,5 Host-Befehle/Gastbefehl)",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-05",
+   "summary": "ADR-0012 Bindungsmodell (Proposed) + Belegbericht R-ARCH-07 – wartet auf Freigabe (O-16)",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-DBT-04",
+   "summary": "Differenztest-Infrastruktur: 118 047 Vektoren, T0 = qemu ohne Abweichung; Hardware-Orakel auf arm64-Runnern vorbereitet",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-GPU-24",
+   "summary": "Protokollbefehle für Views, Sampler, Pipelines, Pass2, Binds; Dreieck-Setup Ende-zu-Ende über das Protokoll grün",
+   "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-SC-02",
+   "summary": "LLVM-Bitcode-Parse mit eigener Vorprüfung; Fuzzing fand 104 Abstürze in LLVM selbst → Sandbox (WP-ARCH-04) Pflicht",
+   "commit": ""
+  }
+ ],
+ "updatedAt": "2026-10-14 21:00"
+}

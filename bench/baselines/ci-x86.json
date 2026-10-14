@@ -1,0 +1,309 @@
+{
+  "schema": 1,
+  "meta": {
+    "created_utc": "2026-10-14T11:07:12Z",
+    "host_id": "ci-x86",
+    "commit": "bcf761a2b798de23266f93309e7c29c3a092262e",
+    "dirty": true,
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+    "profile": {
+      "name": "release",
+      "opt_level": "3",
+      "debug_assertions": false,
+      "panic": "abort",
+      "rustflags": ""
+    },
+    "cpu": {
+      "model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+      "logical_cpus": 4,
+      "avx2": true,
+      "avx512f": true,
+      "governor": null
+    },
+    "os": {
+      "kernel": "6.18.44-fc-v114",
+      "arch": "x86_64"
+    },
+    "config": {
+      "quick": false,
+      "warmup_ms": 300,
+      "sample_ms": 100,
+      "samples": 15,
+      "filter": null,
+      "seed": 5929363101295050753
+    },
+    "merged_runs": 5,
+    "merged_from": [
+      {
+        "commit": "bcf761a2b798de23266f93309e7c29c3a092262e",
+        "created_utc": "2026-10-14T11:07:12Z"
+      },
+      {
+        "commit": "bcf761a2b798de23266f93309e7c29c3a092262e",
+        "created_utc": "2026-10-14T11:07:32Z"
+      },
+      {
+        "commit": "bcf761a2b798de23266f93309e7c29c3a092262e",
+        "created_utc": "2026-10-14T11:07:52Z"
+      },
+      {
+        "commit": "bcf761a2b798de23266f93309e7c29c3a092262e",
+        "created_utc": "2026-10-14T11:08:11Z"
+      },
+      {
+        "commit": "bcf761a2b798de23266f93309e7c29c3a092262e",
+        "created_utc": "2026-10-14T11:08:33Z"
+      }
+    ]
+  },
+  "results": [
+    {
+      "name": "bench_t0_countdown",
+      "kind": "wall",
+      "q_perf": "Q-PERF-1",
+      "unit": "Minst/s",
+      "better": "higher",
+      "value": 114.48128667973089,
+      "mad": 3.633447457675942,
+      "spread_pct": 4.705535216986394,
+      "min": 65.97602961656015,
+      "max": 160.12663749925764,
+      "samples": 75,
+      "iters_per_sample": 8,
+      "work_per_call": 1000002,
+      "work_unit": "instructions"
+    },
+    {
+      "name": "bench_t0_mix",
+      "kind": "wall",
+      "q_perf": "Q-PERF-1",
+      "unit": "Minst/s",
+      "better": "higher",
+      "value": 94.35881075748601,
+      "mad": 10.836087504585507,
+      "spread_pct": 17.026080813491742,
+      "min": 68.21078919238394,
+      "max": 127.88244455671399,
+      "samples": 75,
+      "iters_per_sample": 5,
+      "work_per_call": 1699993,
+      "work_unit": "instructions"
+    },
+    {
+      "name": "bench_ir_verify_cbz_256",
+      "kind": "wall",
+      "q_perf": "Q-PERF-1",
+      "unit": "us",
+      "better": "lower",
+      "value": 62.21124583075972,
+      "mad": 7.09852980949929,
+      "spread_pct": 16.917031483861017,
+      "min": 43.20993982808023,
+      "max": 90.9515484867202,
+      "samples": 75,
+      "iters_per_sample": 1794,
+      "work_per_call": 513,
+      "work_unit": "blocks"
+    },
+    {
+      "name": "bench_ir_verify_cbz_1024",
+      "kind": "wall",
+      "q_perf": "Q-PERF-1",
+      "unit": "us",
+      "better": "lower",
+      "value": 237.5359047619048,
+      "mad": 11.696034441449513,
+      "spread_pct": 7.300187577112764,
+      "min": 169.79514853556486,
+      "max": 394.33357369614515,
+      "samples": 75,
+      "iters_per_sample": 337,
+      "work_per_call": 2049,
+      "work_unit": "blocks"
+    },
+    {
+      "name": "bench_ir_verify_cbz_4096",
+      "kind": "wall",
+      "q_perf": "Q-PERF-1",
+      "unit": "us",
+      "better": "lower",
+      "value": 1176.1663636363637,
+      "mad": 10.021649877149912,
+      "spread_pct": 1.2632668983163124,
+      "min": 987.8252714285713,
+      "max": 1550.1464864864863,
+      "samples": 75,
+      "iters_per_sample": 74,
+      "work_per_call": 8193,
+      "work_unit": "blocks"
+    },
+    {
+      "name": "bench_ir_lower_cbz_4096",
+      "kind": "wall",
+      "q_perf": "Q-PERF-1",
+      "unit": "us",
+      "better": "lower",
+      "value": 473.0244666666667,
+      "mad": 52.619402265372116,
+      "spread_pct": 16.49251741349237,
+      "min": 364.0668266129032,
+      "max": 622.478708737864,
+      "samples": 75,
+      "iters_per_sample": 248,
+      "work_per_call": 8193,
+      "work_unit": "blocks"
+    },
+    {
+      "name": "bench_gpu_proto_decode_mixed",
+      "kind": "wall",
+      "q_perf": "Q-PERF-3",
+      "unit": "MB/s",
+      "better": "higher",
+      "value": 585.9319142127971,
+      "mad": 61.78152102248703,
+      "spread_pct": 15.632775397402858,
+      "min": 368.9843982008166,
+      "max": 795.7874627866694,
+      "samples": 75,
+      "iters_per_sample": 45,
+      "work_per_call": 1048528,
+      "work_unit": "bytes"
+    },
+    {
+      "name": "bench_gpu_proto_decode_bulk",
+      "kind": "wall",
+      "q_perf": "Q-PERF-3",
+      "unit": "MB/s",
+      "better": "higher",
+      "value": 99434.17456631007,
+      "mad": 2050.2866246680496,
+      "spread_pct": 3.057057104927317,
+      "min": 40964.95242239715,
+      "max": 102510.9873512407,
+      "samples": 75,
+      "iters_per_sample": 7195,
+      "work_per_call": 1054736,
+      "work_unit": "bytes"
+    },
+    {
+      "name": "bench_gpu_proto_decode_reply",
+      "kind": "wall",
+      "q_perf": "Q-PERF-3",
+      "unit": "MB/s",
+      "better": "higher",
+      "value": 1060.1503618587337,
+      "mad": 57.844632573936906,
+      "spread_pct": 8.089473311351655,
+      "min": 885.7564892966569,
+      "max": 1515.782165924958,
+      "samples": 75,
+      "iters_per_sample": 262,
+      "work_per_call": 393232,
+      "work_unit": "bytes"
+    },
+    {
+      "name": "bench_virtq_pop_push_1desc",
+      "kind": "wall",
+      "q_perf": "Q-PERF-2",
+      "unit": "Mop/s",
+      "better": "higher",
+      "value": 44.122027313036874,
+      "mad": 1.1452314215088393,
+      "spread_pct": 3.8482425890925436,
+      "min": 23.456400269182694,
+      "max": 58.26521315592437,
+      "samples": 75,
+      "iters_per_sample": 280,
+      "work_per_call": 16384,
+      "work_unit": "pop+push pairs"
+    },
+    {
+      "name": "bench_virtq_pop_push_3desc",
+      "kind": "wall",
+      "q_perf": "Q-PERF-2",
+      "unit": "Mop/s",
+      "better": "higher",
+      "value": 31.505730239963178,
+      "mad": 0.27733506121281337,
+      "spread_pct": 1.3050882296387765,
+      "min": 18.88575126672399,
+      "max": 44.646380271654586,
+      "samples": 75,
+      "iters_per_sample": 573,
+      "work_per_call": 5440,
+      "work_unit": "pop+push pairs"
+    },
+    {
+      "name": "ir_cbz_256_blocks",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "blocks",
+      "better": "lower",
+      "value": 513
+    },
+    {
+      "name": "ir_cbz_256_values",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "values",
+      "better": "lower",
+      "value": 768
+    },
+    {
+      "name": "ir_cbz_256_ops",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "ops",
+      "better": "lower",
+      "value": 768
+    },
+    {
+      "name": "ir_cbz_1024_blocks",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "blocks",
+      "better": "lower",
+      "value": 2049
+    },
+    {
+      "name": "ir_cbz_1024_values",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "values",
+      "better": "lower",
+      "value": 3072
+    },
+    {
+      "name": "ir_cbz_1024_ops",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "ops",
+      "better": "lower",
+      "value": 3072
+    },
+    {
+      "name": "ir_cbz_4096_blocks",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "blocks",
+      "better": "lower",
+      "value": 8193
+    },
+    {
+      "name": "ir_cbz_4096_values",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "values",
+      "better": "lower",
+      "value": 12288
+    },
+    {
+      "name": "ir_cbz_4096_ops",
+      "kind": "deterministic",
+      "q_perf": "Q-PERF-1",
+      "unit": "ops",
+      "better": "lower",
+      "value": 12288
+    }
+  ]
+}

@@ -1,0 +1,3607 @@
+{
+ "id": "isa",
+ "title": "AArch64-Befehle",
+ "unit": "Befehle",
+ "order": 2,
+ "note": "Grün = dekodiert + T0 + getestet. Später zählen T1/T2 als eigene Stufen. ★ = semantisch heikel (Speichermodell, PAC, FP).",
+ "groups": [
+  {
+   "name": "Daten-Imm",
+   "items": [
+    {
+     "id": "ADR ADRP",
+     "name": "ADR ADRP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADD (imm)",
+     "name": "ADD (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADDS (imm)",
+     "name": "ADDS (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUB (imm)",
+     "name": "SUB (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUBS (imm)",
+     "name": "SUBS (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AND (imm)",
+     "name": "AND (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ORR (imm)",
+     "name": "ORR (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EOR (imm)",
+     "name": "EOR (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ANDS (imm)",
+     "name": "ANDS (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MOVZ",
+     "name": "MOVZ",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MOVN",
+     "name": "MOVN",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MOVK",
+     "name": "MOVK",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SBFM",
+     "name": "SBFM",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BFM",
+     "name": "BFM",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UBFM",
+     "name": "UBFM",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EXTR",
+     "name": "EXTR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADDG",
+     "name": "ADDG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUBG",
+     "name": "SUBG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Sprünge",
+   "items": [
+    {
+     "id": "B",
+     "name": "B",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BL",
+     "name": "BL",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BR",
+     "name": "BR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BLR",
+     "name": "BLR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RET",
+     "name": "RET",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "B.cond",
+     "name": "B.cond",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BC.cond",
+     "name": "BC.cond",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CBZ",
+     "name": "CBZ",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CBNZ",
+     "name": "CBNZ",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TBZ",
+     "name": "TBZ",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TBNZ",
+     "name": "TBNZ",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "System",
+   "items": [
+    {
+     "id": "SVC",
+     "name": "SVC",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "HVC",
+     "name": "HVC",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMC",
+     "name": "SMC",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BRK",
+     "name": "BRK",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "HLT",
+     "name": "HLT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ERET",
+     "name": "ERET",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "NOP",
+     "name": "NOP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "YIELD",
+     "name": "YIELD",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "WFE",
+     "name": "WFE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "WFI",
+     "name": "WFI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "WFET",
+     "name": "WFET",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "WFIT",
+     "name": "WFIT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SEV",
+     "name": "SEV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SEVL",
+     "name": "SEVL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "DMB",
+     "name": "DMB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "DSB",
+     "name": "DSB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ISB",
+     "name": "ISB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SB",
+     "name": "SB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CLREX",
+     "name": "CLREX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MSR (imm)",
+     "name": "MSR (imm)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MSR (reg)",
+     "name": "MSR (reg)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MRS",
+     "name": "MRS",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SYS",
+     "name": "SYS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SYSL",
+     "name": "SYSL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BTI",
+     "name": "BTI",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ESB",
+     "name": "ESB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CSDB",
+     "name": "CSDB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PSB",
+     "name": "PSB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TSB",
+     "name": "TSB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AT",
+     "name": "AT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "DC",
+     "name": "DC",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "IC",
+     "name": "IC",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "TLBI",
+     "name": "TLBI",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "DGH",
+     "name": "DGH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "PAC (arm64e)",
+   "items": [
+    {
+     "id": "PACIA",
+     "name": "PACIA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACIB",
+     "name": "PACIB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACDA",
+     "name": "PACDA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACDB",
+     "name": "PACDB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACIZA",
+     "name": "PACIZA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACIZB",
+     "name": "PACIZB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACDZA",
+     "name": "PACDZA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACDZB",
+     "name": "PACDZB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACIASP",
+     "name": "PACIASP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACIBSP",
+     "name": "PACIBSP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTIA",
+     "name": "AUTIA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTIB",
+     "name": "AUTIB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTDA",
+     "name": "AUTDA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTDB",
+     "name": "AUTDB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTIZA",
+     "name": "AUTIZA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTIZB",
+     "name": "AUTIZB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTDZA",
+     "name": "AUTDZA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTDZB",
+     "name": "AUTDZB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTIASP",
+     "name": "AUTIASP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AUTIBSP",
+     "name": "AUTIBSP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "XPACI",
+     "name": "XPACI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "XPACD",
+     "name": "XPACD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "XPACLRI",
+     "name": "XPACLRI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PACGA",
+     "name": "PACGA",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "BRAA",
+     "name": "BRAA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BRAB",
+     "name": "BRAB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BRAAZ",
+     "name": "BRAAZ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BRABZ",
+     "name": "BRABZ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BLRAA",
+     "name": "BLRAA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BLRAB",
+     "name": "BLRAB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BLRAAZ",
+     "name": "BLRAAZ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BLRABZ",
+     "name": "BLRABZ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RETAA",
+     "name": "RETAA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RETAB",
+     "name": "RETAB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ERETAA",
+     "name": "ERETAA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ERETAB",
+     "name": "ERETAB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRAA",
+     "name": "LDRAA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRAB",
+     "name": "LDRAB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Daten-Reg",
+   "items": [
+    {
+     "id": "ADD (sh)",
+     "name": "ADD (sh)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADDS (sh)",
+     "name": "ADDS (sh)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUB (sh)",
+     "name": "SUB (sh)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUBS (sh)",
+     "name": "SUBS (sh)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADD (ext)",
+     "name": "ADD (ext)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADDS (ext)",
+     "name": "ADDS (ext)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUB (ext)",
+     "name": "SUB (ext)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUBS (ext)",
+     "name": "SUBS (ext)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADC",
+     "name": "ADC",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADCS",
+     "name": "ADCS",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SBC",
+     "name": "SBC",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SBCS",
+     "name": "SBCS",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AND",
+     "name": "AND",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BIC",
+     "name": "BIC",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ORR",
+     "name": "ORR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ORN",
+     "name": "ORN",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EOR",
+     "name": "EOR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EON",
+     "name": "EON",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ANDS",
+     "name": "ANDS",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BICS",
+     "name": "BICS",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CCMN",
+     "name": "CCMN",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CCMP",
+     "name": "CCMP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CSEL",
+     "name": "CSEL",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CSINC",
+     "name": "CSINC",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CSINV",
+     "name": "CSINV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CSNEG",
+     "name": "CSNEG",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MADD",
+     "name": "MADD",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MSUB",
+     "name": "MSUB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMADDL",
+     "name": "SMADDL",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMSUBL",
+     "name": "SMSUBL",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMADDL",
+     "name": "UMADDL",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMSUBL",
+     "name": "UMSUBL",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMULH",
+     "name": "SMULH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMULH",
+     "name": "UMULH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UDIV",
+     "name": "UDIV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SDIV",
+     "name": "SDIV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LSLV",
+     "name": "LSLV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LSRV",
+     "name": "LSRV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ASRV",
+     "name": "ASRV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RORV",
+     "name": "RORV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RBIT",
+     "name": "RBIT",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "REV16",
+     "name": "REV16",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "REV32",
+     "name": "REV32",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "REV",
+     "name": "REV",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CLZ",
+     "name": "CLZ",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CLS",
+     "name": "CLS",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32B",
+     "name": "CRC32B",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32H",
+     "name": "CRC32H",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32W",
+     "name": "CRC32W",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32X",
+     "name": "CRC32X",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32CB",
+     "name": "CRC32CB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32CH",
+     "name": "CRC32CH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32CW",
+     "name": "CRC32CW",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CRC32CX",
+     "name": "CRC32CX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RMIF",
+     "name": "RMIF",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SETF8",
+     "name": "SETF8",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SETF16",
+     "name": "SETF16",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CFINV",
+     "name": "CFINV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "XAFLAG",
+     "name": "XAFLAG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AXFLAG",
+     "name": "AXFLAG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Load/Store",
+   "items": [
+    {
+     "id": "LDR (imm)",
+     "name": "LDR (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDR (reg)",
+     "name": "LDR (reg)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDR (lit)",
+     "name": "LDR (lit)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STR (imm)",
+     "name": "STR (imm)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STR (reg)",
+     "name": "STR (reg)",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRB",
+     "name": "LDRB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRH",
+     "name": "LDRH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRSB",
+     "name": "LDRSB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRSH",
+     "name": "LDRSH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDRSW",
+     "name": "LDRSW",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STRB",
+     "name": "STRB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STRH",
+     "name": "STRH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDUR",
+     "name": "LDUR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STUR",
+     "name": "STUR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDURB",
+     "name": "LDURB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDURH",
+     "name": "LDURH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDURSB",
+     "name": "LDURSB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDURSH",
+     "name": "LDURSH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDURSW",
+     "name": "LDURSW",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STURB",
+     "name": "STURB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STURH",
+     "name": "STURH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDTR",
+     "name": "LDTR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STTR",
+     "name": "STTR",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDTRB",
+     "name": "LDTRB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDTRH",
+     "name": "LDTRH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STTRB",
+     "name": "STTRB",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STTRH",
+     "name": "STTRH",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDP",
+     "name": "LDP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STP",
+     "name": "STP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDNP",
+     "name": "LDNP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STNP",
+     "name": "STNP",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDPSW",
+     "name": "LDPSW",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PRFM",
+     "name": "PRFM",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PRFUM",
+     "name": "PRFUM",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDG",
+     "name": "LDG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STG",
+     "name": "STG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ST2G",
+     "name": "ST2G",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STZG",
+     "name": "STZG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Exklusiv/Ordered",
+   "items": [
+    {
+     "id": "LDXR",
+     "name": "LDXR",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "STXR",
+     "name": "STXR",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "LDAXR",
+     "name": "LDAXR",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "STLXR",
+     "name": "STLXR",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "LDXP",
+     "name": "LDXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STXP",
+     "name": "STXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAXP",
+     "name": "LDAXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLXP",
+     "name": "STLXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDXRB",
+     "name": "LDXRB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDXRH",
+     "name": "LDXRH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STXRB",
+     "name": "STXRB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STXRH",
+     "name": "STXRH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAXRB",
+     "name": "LDAXRB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAXRH",
+     "name": "LDAXRH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLXRB",
+     "name": "STLXRB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLXRH",
+     "name": "STLXRH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAR",
+     "name": "LDAR",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "LDARB",
+     "name": "LDARB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDARH",
+     "name": "LDARH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLR",
+     "name": "STLR",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "STLRB",
+     "name": "STLRB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLRH",
+     "name": "STLRH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAPR",
+     "name": "LDAPR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAPRB",
+     "name": "LDAPRB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAPRH",
+     "name": "LDAPRH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDAPUR",
+     "name": "LDAPUR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLUR",
+     "name": "STLUR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDLAR",
+     "name": "LDLAR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STLLR",
+     "name": "STLLR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "LSE-Atomics",
+   "items": [
+    {
+     "id": "CAS",
+     "name": "CAS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASA",
+     "name": "CASA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASL",
+     "name": "CASL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASAL",
+     "name": "CASAL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASB",
+     "name": "CASB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASH",
+     "name": "CASH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASP",
+     "name": "CASP",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "CASPA",
+     "name": "CASPA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASPL",
+     "name": "CASPL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CASPAL",
+     "name": "CASPAL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDADD",
+     "name": "LDADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDCLR",
+     "name": "LDCLR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDEOR",
+     "name": "LDEOR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDSET",
+     "name": "LDSET",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDSMAX",
+     "name": "LDSMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDSMIN",
+     "name": "LDSMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDUMAX",
+     "name": "LDUMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LDUMIN",
+     "name": "LDUMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SWP",
+     "name": "SWP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SWPA",
+     "name": "SWPA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SWPL",
+     "name": "SWPL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SWPAL",
+     "name": "SWPAL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STADD",
+     "name": "STADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STCLR",
+     "name": "STCLR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STEOR",
+     "name": "STEOR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STSET",
+     "name": "STSET",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STSMAX",
+     "name": "STSMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STSMIN",
+     "name": "STSMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STUMAX",
+     "name": "STUMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "STUMIN",
+     "name": "STUMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "FP skalar",
+   "items": [
+    {
+     "id": "FMOV",
+     "name": "FMOV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FADD",
+     "name": "FADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FSUB",
+     "name": "FSUB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMUL",
+     "name": "FMUL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FDIV",
+     "name": "FDIV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FNMUL",
+     "name": "FNMUL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMADD",
+     "name": "FMADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMSUB",
+     "name": "FMSUB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FNMADD",
+     "name": "FNMADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FNMSUB",
+     "name": "FNMSUB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FABS",
+     "name": "FABS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FNEG",
+     "name": "FNEG",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FSQRT",
+     "name": "FSQRT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCMP",
+     "name": "FCMP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCMPE",
+     "name": "FCMPE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCCMP",
+     "name": "FCCMP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCCMPE",
+     "name": "FCCMPE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCSEL",
+     "name": "FCSEL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVT",
+     "name": "FCVT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTZS",
+     "name": "FCVTZS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTZU",
+     "name": "FCVTZU",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTAS",
+     "name": "FCVTAS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTAU",
+     "name": "FCVTAU",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTMS",
+     "name": "FCVTMS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTMU",
+     "name": "FCVTMU",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTNS",
+     "name": "FCVTNS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTNU",
+     "name": "FCVTNU",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTPS",
+     "name": "FCVTPS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTPU",
+     "name": "FCVTPU",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SCVTF",
+     "name": "SCVTF",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UCVTF",
+     "name": "UCVTF",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTN",
+     "name": "FRINTN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTP",
+     "name": "FRINTP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTM",
+     "name": "FRINTM",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTZ",
+     "name": "FRINTZ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTA",
+     "name": "FRINTA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTX",
+     "name": "FRINTX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTI",
+     "name": "FRINTI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINT32Z",
+     "name": "FRINT32Z",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINT32X",
+     "name": "FRINT32X",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINT64Z",
+     "name": "FRINT64Z",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINT64X",
+     "name": "FRINT64X",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMAX",
+     "name": "FMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMIN",
+     "name": "FMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMAXNM",
+     "name": "FMAXNM",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMINNM",
+     "name": "FMINNM",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FJCVTZS",
+     "name": "FJCVTZS",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "BFCVT",
+     "name": "BFCVT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "NEON Arithmetik",
+   "items": [
+    {
+     "id": "ADD (v)",
+     "name": "ADD (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SUB (v)",
+     "name": "SUB (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MUL (v)",
+     "name": "MUL (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MLA",
+     "name": "MLA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MLS",
+     "name": "MLS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "NEG (v)",
+     "name": "NEG (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ABS (v)",
+     "name": "ABS (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQADD",
+     "name": "SQADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UQADD",
+     "name": "UQADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQSUB",
+     "name": "SQSUB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UQSUB",
+     "name": "UQSUB",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHADD",
+     "name": "SHADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UHADD",
+     "name": "UHADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SRHADD",
+     "name": "SRHADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "URHADD",
+     "name": "URHADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SABD",
+     "name": "SABD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UABD",
+     "name": "UABD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SABA",
+     "name": "SABA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UABA",
+     "name": "UABA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMAX",
+     "name": "SMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMIN",
+     "name": "SMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMAX",
+     "name": "UMAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMIN",
+     "name": "UMIN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMAXP",
+     "name": "SMAXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMAXP",
+     "name": "UMAXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADDP",
+     "name": "ADDP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ADDV",
+     "name": "ADDV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SADDLV",
+     "name": "SADDLV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UADDLV",
+     "name": "UADDLV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMAXV",
+     "name": "SMAXV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMAXV",
+     "name": "UMAXV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMINV",
+     "name": "SMINV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMINV",
+     "name": "UMINV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SADDL",
+     "name": "SADDL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UADDL",
+     "name": "UADDL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SSUBL",
+     "name": "SSUBL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "USUBL",
+     "name": "USUBL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SADDW",
+     "name": "SADDW",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UADDW",
+     "name": "UADDW",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMULL",
+     "name": "SMULL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMULL",
+     "name": "UMULL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMLAL",
+     "name": "SMLAL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMLAL",
+     "name": "UMLAL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PMUL",
+     "name": "PMUL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PMULL",
+     "name": "PMULL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQDMULH",
+     "name": "SQDMULH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQRDMULH",
+     "name": "SQRDMULH",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQDMULL",
+     "name": "SQDMULL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SDOT",
+     "name": "SDOT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UDOT",
+     "name": "UDOT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "USDOT",
+     "name": "USDOT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CNT (v)",
+     "name": "CNT (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CLZ (v)",
+     "name": "CLZ (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CLS (v)",
+     "name": "CLS (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "NEON Logik/Shift",
+   "items": [
+    {
+     "id": "AND (v)",
+     "name": "AND (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ORR (v)",
+     "name": "ORR (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EOR (v)",
+     "name": "EOR (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BIC (v)",
+     "name": "BIC (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ORN (v)",
+     "name": "ORN (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "NOT",
+     "name": "NOT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BSL",
+     "name": "BSL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BIT",
+     "name": "BIT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BIF",
+     "name": "BIF",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMEQ",
+     "name": "CMEQ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMGE",
+     "name": "CMGE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMGT",
+     "name": "CMGT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMHI",
+     "name": "CMHI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMHS",
+     "name": "CMHS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMLE",
+     "name": "CMLE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMLT",
+     "name": "CMLT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CMTST",
+     "name": "CMTST",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHL",
+     "name": "SHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SSHL",
+     "name": "SSHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "USHL",
+     "name": "USHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SSHR",
+     "name": "SSHR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "USHR",
+     "name": "USHR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SRSHR",
+     "name": "SRSHR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "URSHR",
+     "name": "URSHR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SSRA",
+     "name": "SSRA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "USRA",
+     "name": "USRA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SRI",
+     "name": "SRI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SLI",
+     "name": "SLI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHRN",
+     "name": "SHRN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RSHRN",
+     "name": "RSHRN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQSHRN",
+     "name": "SQSHRN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UQSHRN",
+     "name": "UQSHRN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQRSHRN",
+     "name": "SQRSHRN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQSHRUN",
+     "name": "SQSHRUN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQXTN",
+     "name": "SQXTN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UQXTN",
+     "name": "UQXTN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "XTN",
+     "name": "XTN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SXTL",
+     "name": "SXTL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UXTL",
+     "name": "UXTL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SSHLL",
+     "name": "SSHLL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "USHLL",
+     "name": "USHLL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SQSHL",
+     "name": "SQSHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UQSHL",
+     "name": "UQSHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SRSHL",
+     "name": "SRSHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "URSHL",
+     "name": "URSHL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RBIT (v)",
+     "name": "RBIT (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "REV16 (v)",
+     "name": "REV16 (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "REV32 (v)",
+     "name": "REV32 (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "REV64",
+     "name": "REV64",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "NEON Permute/Move",
+   "items": [
+    {
+     "id": "DUP",
+     "name": "DUP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "INS",
+     "name": "INS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMOV",
+     "name": "UMOV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMOV",
+     "name": "SMOV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MOVI",
+     "name": "MOVI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MVNI",
+     "name": "MVNI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EXT",
+     "name": "EXT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TBL",
+     "name": "TBL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TBX",
+     "name": "TBX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ZIP1",
+     "name": "ZIP1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ZIP2",
+     "name": "ZIP2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UZP1",
+     "name": "UZP1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UZP2",
+     "name": "UZP2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TRN1",
+     "name": "TRN1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "TRN2",
+     "name": "TRN2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD1",
+     "name": "LD1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD2",
+     "name": "LD2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD3",
+     "name": "LD3",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD4",
+     "name": "LD4",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ST1",
+     "name": "ST1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ST2",
+     "name": "ST2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ST3",
+     "name": "ST3",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ST4",
+     "name": "ST4",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD1R",
+     "name": "LD1R",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD2R",
+     "name": "LD2R",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD3R",
+     "name": "LD3R",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LD4R",
+     "name": "LD4R",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "NEON FP",
+   "items": [
+    {
+     "id": "FADD (v)",
+     "name": "FADD (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FSUB (v)",
+     "name": "FSUB (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMUL (v)",
+     "name": "FMUL (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FDIV (v)",
+     "name": "FDIV (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMLA (v)",
+     "name": "FMLA (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMLS (v)",
+     "name": "FMLS (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMULX",
+     "name": "FMULX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FABD",
+     "name": "FABD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FABS (v)",
+     "name": "FABS (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FNEG (v)",
+     "name": "FNEG (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FSQRT (v)",
+     "name": "FSQRT (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRECPE",
+     "name": "FRECPE",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "FRECPS",
+     "name": "FRECPS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRSQRTE",
+     "name": "FRSQRTE",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "FRSQRTS",
+     "name": "FRSQRTS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMAX (v)",
+     "name": "FMAX (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMIN (v)",
+     "name": "FMIN (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMAXNM (v)",
+     "name": "FMAXNM (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMINNM (v)",
+     "name": "FMINNM (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FADDP",
+     "name": "FADDP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMAXP",
+     "name": "FMAXP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMINP",
+     "name": "FMINP",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMAXV",
+     "name": "FMAXV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FMINV",
+     "name": "FMINV",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCMEQ",
+     "name": "FCMEQ",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCMGE",
+     "name": "FCMGE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCMGT",
+     "name": "FCMGT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FACGE",
+     "name": "FACGE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FACGT",
+     "name": "FACGT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTN",
+     "name": "FCVTN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTL",
+     "name": "FCVTL",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTXN",
+     "name": "FCVTXN",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SCVTF (v)",
+     "name": "SCVTF (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UCVTF (v)",
+     "name": "UCVTF (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTZS (v)",
+     "name": "FCVTZS (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCVTZU (v)",
+     "name": "FCVTZU (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTN (v)",
+     "name": "FRINTN (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FRINTZ (v)",
+     "name": "FRINTZ (v)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "URECPE",
+     "name": "URECPE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "URSQRTE",
+     "name": "URSQRTE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCADD",
+     "name": "FCADD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "FCMLA",
+     "name": "FCMLA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BFDOT",
+     "name": "BFDOT",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BFMMLA",
+     "name": "BFMMLA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SMMLA",
+     "name": "SMMLA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "UMMLA",
+     "name": "UMMLA",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Krypto",
+   "items": [
+    {
+     "id": "AESE",
+     "name": "AESE",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AESD",
+     "name": "AESD",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AESMC",
+     "name": "AESMC",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "AESIMC",
+     "name": "AESIMC",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA1C",
+     "name": "SHA1C",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA1H",
+     "name": "SHA1H",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA1M",
+     "name": "SHA1M",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA1P",
+     "name": "SHA1P",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA1SU0",
+     "name": "SHA1SU0",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA1SU1",
+     "name": "SHA1SU1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA256H",
+     "name": "SHA256H",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA256H2",
+     "name": "SHA256H2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA256SU0",
+     "name": "SHA256SU0",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA256SU1",
+     "name": "SHA256SU1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA512H",
+     "name": "SHA512H",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA512H2",
+     "name": "SHA512H2",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA512SU0",
+     "name": "SHA512SU0",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "SHA512SU1",
+     "name": "SHA512SU1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EOR3",
+     "name": "EOR3",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BCAX",
+     "name": "BCAX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "RAX1",
+     "name": "RAX1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "XAR",
+     "name": "XAR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,185 @@
+# Ritsu CI. Same entry points as local development: see Makefile and
+# docs/process/testing.md. Keep jobs thin; logic belongs in `make` targets.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Exact compiler for reproducible builds and instruction-count baselines; overrides
+  # rust-toolchain.toml. Bump together with bench/baselines/icount-*.json.
+  RUSTUP_TOOLCHAIN: "1.97.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  rust:
+    name: rust (fmt, clippy, tests, crate graph)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # fuzz/ and bench/ are stand-alone packages with their own target directories.
+          workspaces: |
+            .
+            fuzz
+            bench
+            tests/dbt-ref
+      # lint-aux/test-aux: fmt + clippy + tests of fuzz/ (replays fuzz/regressions and the seed
+      # corpus on stable, WP-QA-08) and bench/ (workload unit tests); bench-check: pipeline smoke test.
+      - run: make fmt-check lint lint-aux test-rust test-aux bench-check graph
+      # test-aux includes dbt-ref-check: T0 against the checked-in golden files (tests/dbt-ref/golden,
+      # WP-DBT-04), no arm64 machine needed. The smoke run below executes fresh vectors under
+      # qemu-user (secondary oracle) with the runner built by clang + lld; missing tools fail the step.
+      - name: Install the DBT reference tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld qemu-user
+      - name: DBT differential smoke test (T0 vs qemu-user)
+        run: make dbt-ref-smoke DBT_REF_REQUIRED=1
+      # Instruction-count gate (WP-QA-09, bench/README.md): host instructions per work unit under
+      # valgrind/callgrind, no timing, so it is reliable on shared runners (unlike wall-clock
+      # numbers). A deterministic regression above 2 % fails the job. Measured: about 10 s build +
+      # 15 s run. The toolchain floats on `stable`, so a different rustc/glibc than the baseline
+      # only warns (--on-toolchain-diff warn) until the baseline is renewed in a PR.
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+      - name: Instruction-count gate
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p bench/results
+          make bench-icount-compare BENCH_ICOUNT_COMPARE_ARGS="--on-toolchain-diff warn" | tee bench/results/icount-compare.txt
+      - name: Step summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f bench/results/icount-compare.txt ]; then
+            { echo '### Instruction counts (host instructions per work unit)'; echo '```'; cat bench/results/icount-compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-icount-${{ github.sha }}
+          path: bench/results/
+          retention-days: 30
+
+  cpp:
+    name: cpp (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang, clang-asan, clang-asan-llvm]
+        include:
+          - compiler: gcc
+            name: gcc
+            cc: gcc
+            cxx: g++
+            build_dir: build/air2spirv
+            cmake_args: ""
+          - compiler: clang
+            name: clang
+            cc: clang
+            cxx: clang++
+            build_dir: build/air2spirv-clang
+            cmake_args: ""
+          # ASan + UBSan (AIR2SPIRV_SANITIZE, ADR-0003); the 60 s libFuzzer smoke of
+          # fuzz_air_sniff runs in fuzz.yml.
+          - compiler: clang-asan
+            name: clang (ASan+UBSan)
+            cc: clang
+            cxx: clang++
+            build_dir: build/air2spirv-asan
+            cmake_args: -DAIR2SPIRV_SANITIZE=ON
+          # Stage 3 with LLVM (WP-SC-02): pinned LLVM 18.1 from Ubuntu's llvm-18-dev
+          # (+ libzstd-dev for LLVMExports.cmake), under ASan + UBSan.
+          - compiler: clang-asan-llvm
+            name: clang (ASan+UBSan, LLVM 18)
+            cc: clang
+            cxx: clang++
+            build_dir: build/air2spirv-asan-llvm
+            cmake_args: -DAIR2SPIRV_SANITIZE=ON -DAIR2SPIRV_WITH_LLVM=ON
+            extra_packages: llvm-18-dev libzstd-dev
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v4
+      # spirv-tools/spirv-headers come from noble-updates (>= 2025.1 for SPV_ENV_VULKAN_1_4);
+      # Ubuntu's spirv-tools package already ships headers, static libs and CMake configs.
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build cmake clang clang-format spirv-tools spirv-headers libclang-rt-18-dev \
+            ${{ matrix.extra_packages }}
+      - run: make cpp CPP_BUILD_DIR=${{ matrix.build_dir }} CPP_CMAKE_ARGS="${{ matrix.cmake_args }}"
+      - name: clang-format check
+        if: matrix.compiler == 'gcc' # formatting does not depend on the compiler
+        run: make cpp-fmt-check
+
+  docs:
+    name: docs (markdown links)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: make links status
+
+  # Primary oracle of the DBT differential tests (docs/process/testing.md section 4.3, WP-DBT-04):
+  # real arm64 hardware runs the statically linked ritsu-ref-runner on the generated vectors.
+  #   1. T0 must reproduce the fresh hardware recording on every vector (dbt-ref-verify-new).
+  #   2. The recording is compared with the checked-in golden file (dbt-ref-compare). While that
+  #      file is still a qemu recording (header `oracle = qemu`), a difference is a finding about
+  #      qemu or about the hardware; promote the artifact with `make dbt-ref-update` once reviewed.
+  #   3. record.golden is uploaded; it is the file to check in (hardware replaces qemu).
+  # Also proves that ritsu-dbt itself builds and passes on arm64 (no x86-only assumptions in T0).
+  # continue-on-error: this job has never run on a hosted arm64 runner yet. Remove the flag after
+  # the first green runs on the repository (availability for private repositories: O-DBT-11).
+  dbt-reference:
+    name: dbt-reference (arm64 hardware)
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            tests/dbt-ref
+      - name: Host
+        run: |
+          uname -srm
+          grep -m5 -E '^(CPU implementer|CPU architecture|CPU variant|CPU part|CPU revision)' /proc/cpuinfo || true
+          lscpu | head -n 20 || true
+      - run: cargo test -p ritsu-dbt
+      - name: Install the runner toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld
+      - name: Record the vectors on this CPU
+        run: make dbt-ref-record
+      - name: T0 against the hardware recording
+        run: make dbt-ref-verify-new
+      - name: Hardware recording against the checked-in golden file
+        if: always()
+        run: make dbt-ref-compare
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dbt-ref-golden-${{ github.sha }}
+          path: build/dbt-ref/record.golden
+          retention-days: 30

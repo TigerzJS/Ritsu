@@ -1,0 +1,102 @@
+# DBT differential tests with fresh seeds (docs/process/testing.md section 4.3, WP-DBT-04).
+#
+# Nightly and on demand, never on push/PR (push/PR use the checked-in golden files, ci.yml).
+# The arm64 job runs freshly generated vectors on real hardware and uploads the raw results; the
+# x86 job regenerates the same vectors from the seed and compares T0 with the hardware results.
+# A failure prints the seed and the repeat commands (tests/dbt-ref/README.md). Files for a failed
+# comparison stay available as the artifact `dbt-ref-fresh-<seed>`.
+name: dbt-ref
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "RITSU_TEST_SEED (decimal or 0x..); empty: derived from the run id"
+        default: ""
+      units:
+        description: "Vectors per class weight (1000 = about 118k vectors)"
+        default: "1000"
+
+concurrency:
+  group: dbt-ref-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: "1.97.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  record-arm64:
+    name: run vectors on arm64 hardware
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    outputs:
+      seed: ${{ steps.seed.outputs.seed }}
+      units: ${{ steps.seed.outputs.units }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tests/dbt-ref
+      - name: Choose the seed
+        id: seed
+        shell: bash
+        env:
+          INPUT_SEED: ${{ github.event.inputs.seed }}
+          INPUT_UNITS: ${{ github.event.inputs.units }}
+        run: |
+          seed=$INPUT_SEED
+          units=$INPUT_UNITS
+          # run id * 1000003 stays far below 2^63; reduced to 48 bits
+          if [ -z "$seed" ]; then seed=$(( (GITHUB_RUN_ID * 1000003 + GITHUB_RUN_ATTEMPT) % 281474976710656 )); fi
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "units=${units:-1000}" >> "$GITHUB_OUTPUT"
+          echo "RITSU_TEST_SEED=$seed"
+      - name: Host
+        run: |
+          uname -srm
+          grep -m5 -E '^(CPU implementer|CPU architecture|CPU variant|CPU part|CPU revision)' /proc/cpuinfo || true
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld
+      - name: Run the vectors
+        env:
+          RITSU_TEST_SEED: ${{ steps.seed.outputs.seed }}
+          DBT_REF_UNITS: ${{ steps.seed.outputs.units }}
+          DBT_REF_REQUIRED: "1"
+        run: make dbt-ref-run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbt-ref-fresh-${{ steps.seed.outputs.seed }}
+          path: build/dbt-ref/results.raw
+          retention-days: 14
+
+  compare-x86:
+    name: T0 against the hardware results (x86)
+    needs: record-arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tests/dbt-ref
+      - uses: actions/download-artifact@v4
+        with:
+          name: dbt-ref-fresh-${{ needs.record-arm64.outputs.seed }}
+          path: build/dbt-ref
+      - name: Regenerate the vectors from the seed
+        env:
+          DBT_REF_SEED: ${{ needs.record-arm64.outputs.seed }}
+          DBT_REF_UNITS: ${{ needs.record-arm64.outputs.units }}
+        run: make dbt-ref-gen
+      - name: Compare
+        run: |
+          echo "RITSU_TEST_SEED=${{ needs.record-arm64.outputs.seed }}"
+          make dbt-ref-verify

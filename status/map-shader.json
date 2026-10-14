@@ -1,0 +1,476 @@
+{
+ "id": "shader",
+ "title": "Shader-Funktionen",
+ "unit": "Funktionen",
+ "order": 4,
+ "note": "air2spirv: AIR → Vulkan-SPIR-V 1.6. Grün = implementiert, getestet und spirv-val-geprüft.",
+ "groups": [
+  {
+   "name": "Eingabe",
+   "items": [
+    {
+     "id": "LLVM-Bitcode erkennen",
+     "name": "LLVM-Bitcode erkennen",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Bitcode-Wrapper",
+     "name": "Bitcode-Wrapper",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": ".metallib-Container",
+     "name": ".metallib-Container",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Bitstream-Audit",
+     "name": "Bitstream-Audit",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "LLVM-Parse + Verifier",
+     "name": "LLVM-Parse + Verifier",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "C-ABI",
+     "name": "C-ABI",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CLI",
+     "name": "CLI",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Fuzzing Eingabe",
+     "name": "Fuzzing Eingabe",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Stufen",
+   "items": [
+    {
+     "id": "Kernel/Compute",
+     "name": "Kernel/Compute",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Vertex",
+     "name": "Vertex",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Fragment",
+     "name": "Fragment",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Mesh",
+     "name": "Mesh",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Object",
+     "name": "Object",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Visible Functions",
+     "name": "Visible Functions",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Intersection",
+     "name": "Intersection",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Adressräume",
+   "items": [
+    {
+     "id": "device",
+     "name": "device",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "constant",
+     "name": "constant",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "threadgroup",
+     "name": "threadgroup",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "thread",
+     "name": "thread",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "object_data",
+     "name": "object_data",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ray_data",
+     "name": "ray_data",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PhysicalStorageBuffer (BDA)",
+     "name": "PhysicalStorageBuffer (BDA)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Kontrollfluss",
+   "items": [
+    {
+     "id": "Strukturierung",
+     "name": "Strukturierung",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Irreduzible CFGs",
+     "name": "Irreduzible CFGs",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Schleifen",
+     "name": "Schleifen",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Switch",
+     "name": "Switch",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Rekonvergenz",
+     "name": "Rekonvergenz",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Discard/Demote",
+     "name": "Discard/Demote",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Ressourcen",
+   "items": [
+    {
+     "id": "Buffer-Bindungen",
+     "name": "Buffer-Bindungen",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Texturen",
+     "name": "Texturen",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Sampler",
+     "name": "Sampler",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Constexpr-Sampler",
+     "name": "Constexpr-Sampler",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Argument Buffers",
+     "name": "Argument Buffers",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "stage_in",
+     "name": "stage_in",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Vertex-Pulling",
+     "name": "Vertex-Pulling",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Builtins",
+     "name": "Builtins",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Function Constants",
+     "name": "Function Constants",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Mathe",
+   "items": [
+    {
+     "id": "Float32",
+     "name": "Float32",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "half",
+     "name": "half",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "bfloat",
+     "name": "bfloat",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Fast-Math",
+     "name": "Fast-Math",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "precise",
+     "name": "precise",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Konvertierungen",
+     "name": "Konvertierungen",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Integer-Mathe",
+     "name": "Integer-Mathe",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "air.*-Mathe-Intrinsics",
+     "name": "air.*-Mathe-Intrinsics",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Parallel",
+   "items": [
+    {
+     "id": "SIMD-Group-Ops",
+     "name": "SIMD-Group-Ops",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Quad-Ops",
+     "name": "Quad-Ops",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Subgroup-Größe 32 auf Intel",
+     "name": "Subgroup-Größe 32 auf Intel",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Threadgroup-Barrieren",
+     "name": "Threadgroup-Barrieren",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Atomics int",
+     "name": "Atomics int",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Atomics float",
+     "name": "Atomics float",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Speichermodell",
+     "name": "Speichermodell",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Erweitert",
+   "items": [
+    {
+     "id": "Ray Query",
+     "name": "Ray Query",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Raster Order Groups",
+     "name": "Raster Order Groups",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Color-Attachment-Lesen",
+     "name": "Color-Attachment-Lesen",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Tile/Imageblocks",
+     "name": "Tile/Imageblocks",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Funktionszeiger",
+     "name": "Funktionszeiger",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "simdgroup_matrix",
+     "name": "simdgroup_matrix",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Reflexion",
+     "name": "Reflexion",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Shader-Cache",
+     "name": "Shader-Cache",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Sandbox-Worker",
+     "name": "Sandbox-Worker",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}

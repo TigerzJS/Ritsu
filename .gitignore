@@ -1,0 +1,15 @@
+/target/
+/build/
+/compiler/*/build/
+*.swp
+.DS_Store
+# Guest images, IPSWs and Apple binaries must never be committed (ADR-0008)
+*.ipsw
+*.img
+*.raw
+*.qcow2
+/vm/
+/cache/
+.claude/settings.local.json
+__pycache__/
+*.pyc

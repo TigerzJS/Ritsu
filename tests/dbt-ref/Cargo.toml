@@ -1,0 +1,25 @@
+# Differential-test infrastructure for the DBT (docs/process/testing.md section 4, WP-DBT-04).
+# Own [workspace] like fuzz/ and bench/: not a member of the main workspace, so the root Cargo.toml,
+# the crate graph (tools/check_crate_graph.py) and `cargo test --workspace` stay untouched.
+# No external dependencies: std only, plus the in-repo crates that are the system under test.
+[package]
+name = "ritsu-dbt-ref"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "UNLICENSED"
+
+[dependencies]
+ritsu-core = { path = "../../crates/ritsu-core" }
+ritsu-mem = { path = "../../crates/ritsu-mem" }
+ritsu-dbt = { path = "../../crates/ritsu-dbt" }
+
+[workspace]
+
+[lib]
+name = "ritsu_dbt_ref"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ritsu-dbt-ref"
+path = "src/main.rs"

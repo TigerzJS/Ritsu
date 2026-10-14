@@ -1,0 +1,438 @@
+{
+ "id": "platform",
+ "title": "Plattform & Host",
+ "unit": "Komponenten",
+ "order": 5,
+ "note": "Virtuelle Apple-VM-Hardware und das Appliance-Linux für den G5 MF.",
+ "groups": [
+  {
+   "name": "Kern",
+   "items": [
+    {
+     "id": "MMIO-Bus",
+     "name": "MMIO-Bus",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MachineConfig",
+     "name": "MachineConfig",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "vmm-CLI",
+     "name": "vmm-CLI",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "vCPU-Threads",
+     "name": "vCPU-Threads",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Run-Loop",
+     "name": "Run-Loop",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "IRQ-Zustellung",
+     "name": "IRQ-Zustellung",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "seccomp",
+     "name": "seccomp",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Snapshot",
+     "name": "Snapshot",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "ARM-Geräte",
+   "items": [
+    {
+     "id": "PL011 UART",
+     "name": "PL011 UART",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "GICv3 Distributor",
+     "name": "GICv3 Distributor",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "GICv3 Redistributor",
+     "name": "GICv3 Redistributor",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ICC-Systemregister",
+     "name": "ICC-Systemregister",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Generic Timer",
+     "name": "Generic Timer",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PSCI",
+     "name": "PSCI",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PL031 RTC",
+     "name": "PL031 RTC",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "pvpanic",
+     "name": "pvpanic",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PCIe ECAM",
+     "name": "PCIe ECAM",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "virtio",
+   "items": [
+    {
+     "id": "Split-Virtqueue",
+     "name": "Split-Virtqueue",
+     "status": "done",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Indirect-Deskriptoren",
+     "name": "Indirect-Deskriptoren",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EVENT_IDX",
+     "name": "EVENT_IDX",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-pci",
+     "name": "virtio-pci",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-blk root",
+     "name": "virtio-blk root",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-blk aux",
+     "name": "virtio-blk aux",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-net",
+     "name": "virtio-net",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-input",
+     "name": "virtio-input",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-sound",
+     "name": "virtio-sound",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-rng",
+     "name": "virtio-rng",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "virtio-console",
+     "name": "virtio-console",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Apple-VM-Geräte",
+   "items": [
+    {
+     "id": "cfg-Bereich",
+     "name": "cfg-Bereich",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "AES-Engine",
+     "name": "AES-Engine",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "bdif Boot-Disk",
+     "name": "bdif Boot-Disk",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Paravirt-GPU (MMIO)",
+     "name": "Paravirt-GPU (MMIO)",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Paravirt-GPU (PCI)",
+     "name": "Paravirt-GPU (PCI)",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Speicherkarte",
+     "name": "Speicherkarte",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Boot",
+   "items": [
+    {
+     "id": "AVPBooter (Nutzer)",
+     "name": "AVPBooter (Nutzer)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Eigener Loader",
+     "name": "Eigener Loader",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Kernelcache laden",
+     "name": "Kernelcache laden",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "aux/NVRAM",
+     "name": "aux/NVRAM",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Machine-ID",
+     "name": "Machine-ID",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "IPSW-Restore",
+     "name": "IPSW-Restore",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Image-Import",
+     "name": "Image-Import",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Host-OS",
+   "items": [
+    {
+     "id": "Image-Bau",
+     "name": "Image-Bau",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Kernel-Config",
+     "name": "Kernel-Config",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "nvidia-open",
+     "name": "nvidia-open",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "NVK",
+     "name": "NVK",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ANV (Iris Xe)",
+     "name": "ANV (Iris Xe)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PRIME",
+     "name": "PRIME",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "cage-Kiosk",
+     "name": "cage-Kiosk",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Direkt-KMS",
+     "name": "Direkt-KMS",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "WLAN AX201",
+     "name": "WLAN AX201",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Touchpad",
+     "name": "Touchpad",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Audio ALC256",
+     "name": "Audio ALC256",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Secure Boot",
+     "name": "Secure Boot",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Dual-Boot",
+     "name": "Dual-Boot",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "First-Run",
+     "name": "First-Run",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "A/B-Updates",
+     "name": "A/B-Updates",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "CPU-Pinning",
+     "name": "CPU-Pinning",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}

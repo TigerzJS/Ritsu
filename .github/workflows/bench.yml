@@ -1,0 +1,73 @@
+# Ritsu benchmarks (docs/process/testing.md section 8, bench/README.md).
+#
+# Nightly and on demand only, never on push/PR: wall-clock numbers on shared runners are noisy
+# (measured run-to-run spread of 8-66 % on a comparable cloud VM), so they must not gate merges.
+#   * deterministic metrics (IR sizes) and workload fingerprints fail the job (limit 2 %),
+#   * wall-clock regressions above 10 % are reported as warnings (annotations + step summary).
+# The binding wall-clock gate (5 %) belongs to the self-hosted G5 MF runner (testing.md section 9)
+# and comes with M3/M4. Each run measures RUNS times and compares the per-benchmark median.
+name: bench
+
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Number of complete suite runs (median is compared)"
+        default: "3"
+
+concurrency:
+  group: bench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Exact compiler for reproducible builds and instruction-count baselines; overrides
+  # rust-toolchain.toml. Bump together with bench/baselines/icount-*.json.
+  RUSTUP_TOOLCHAIN: "1.97.0"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  BENCH_HOST_ID: ci-x86
+
+jobs:
+  bench:
+    name: bench (${{ github.event_name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bench
+      - name: Measure
+        shell: bash
+        env:
+          RUNS: ${{ github.event.inputs.runs || '3' }}
+        run: |
+          for i in $(seq 1 "$RUNS"); do
+            make bench BENCH_OUT="bench/results/run$i.json"
+          done
+          python3 tools/bench_compare.py --merge "bench/results/$BENCH_HOST_ID.json" bench/results/run*.json
+      - name: Compare with the baseline
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 tools/bench_compare.py "bench/baselines/$BENCH_HOST_ID.json" "bench/results/$BENCH_HOST_ID.json" \
+            | tee bench/results/compare.txt
+      - name: Step summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f bench/results/compare.txt ]; then
+            { echo '```'; cat bench/results/compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-${{ env.BENCH_HOST_ID }}-${{ github.sha }}
+          path: bench/results/
+          retention-days: 90
