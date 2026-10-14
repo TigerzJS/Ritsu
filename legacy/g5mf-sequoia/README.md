@@ -1,5 +1,8 @@
 # Hackintosh: Gigabyte G5 MF (i5-12500H + RTX 4050 Laptop)
 
+> **Eingefroren.** Dieser Stand wird nicht weiterentwickelt. Das neue Projekt (macOS 27 per Full-System-Translation)
+> steht im [Wurzelverzeichnis](../../README.md). Alle Pfade und Skripte unten gelten relativ zu diesem Ordner.
+
 OpenCore-EFI für **macOS 15 Sequoia** auf dem Gigabyte G5 MF, gebaut mit
 **[1401](https://github.com/nullmoth/1401)** von NullMoth Systems. Dazu kommt der neue
 **[NullMoth NVIDIA-Treiber](https://github.com/nullmoth/nvidia-macos-driver)** (v1.13.0), der Turing-und-neuere
