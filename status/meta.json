@@ -1,7 +1,7 @@
 {
  "project": "Ritsu",
  "goal": "M1 „Erster Befehl“: statisches aarch64-Linux-ELF läuft über T0, Differenztests grün",
- "goal_detail": "Dauerauftrag: Agents arbeiten die Roadmap in Prioritätsreihenfolge ab (docs/process/autopilot.md). Aktueller Fokus: WP-ARCH-01, WP-DBT-01…05, parallel WP-GPU-01/02 und WP-SC-02/03.",
+ "goal_detail": "Durchgehende Pipeline mit 4 parallelen Spuren (docs/process/autopilot.md). Laufend: CPU WP-DBT-01 · GPU WP-GPU-01 · Shader WP-SC-03 · Qualität WP-QA-01 + WP-PLAT-16.",
  "milestones": [
   {
    "id": "M0",
@@ -66,5 +66,5 @@
    "commit": "547ec11"
   }
  ],
- "updatedAt": "2026-10-14 12:15"
+ "updatedAt": "2026-10-14 12:25"
 }

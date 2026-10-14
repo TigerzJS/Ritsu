@@ -164,12 +164,14 @@ legacy/g5mf-sequoia/      alter, funktionierender Hackintosh (macOS 15 + NullMot
 
 ## 7. Dauerauftrag (Autopilot)
 
-Die Agents arbeiten **durchgehend** an der Roadmap. Eine stündliche Routine startet eine Runde, und jede Runde folgt
-[docs/process/autopilot.md](docs/process/autopilot.md): synchronisieren → `make check` → offene Befunde → WPs nach
-Priorität → `/wp` → Commit + Push → Status pflegen → Kurzbericht.
+Die Agents arbeiten **durchgehend** an der Roadmap, ohne Runden. Der Orchestrator betreibt eine Pipeline mit bis zu
+4 parallelen Spuren (CPU, GPU, Shader, Plattform/Qualität). Sobald ein Spezialist fertig ist, wird geprüft, reviewt,
+integriert und dieselbe Spur **sofort** mit dem nächsten Work Package belegt. Details:
+[docs/process/autopilot.md](docs/process/autopilot.md). Eine stündliche Routine ist nur Wächter und startet die
+Pipeline neu, falls sie steht.
 
 * **Aktuelles Ziel:** steht in `status/meta.json` (`goal`) und ist immer der nächste offene Meilenstein.
-* **Statusdaten** in `status/*.json` sind Teil der Definition of Done: Jede Runde aktualisiert sie, `make status`
+* **Statusdaten** in `status/*.json` sind Teil der Definition of Done: Jede Integration aktualisiert sie, `make status`
   prüft sie, und danach wird die Live-Übersicht aktualisiert:
   <https://claude.ai/artifact/AEJLPVPPQZCncXeXG5Hr8y> (privat, nur für den Projektinhaber).
 * Der Autopilot entscheidet nie, was dem Menschen vorbehalten ist (ADR-Freigaben, `O-*`-Fragen, Lizenz, Apple-Dateien).
