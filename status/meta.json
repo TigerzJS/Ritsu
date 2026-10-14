@@ -70,7 +70,13 @@
    "wp": "WP-M0-REV",
    "summary": "Opus-Review: Logik korrekt, kein Blocker; 1 major (Teil-Commit im GPU-Frontend) an GPU-Spur, Doku-/CI-Befunde verteilt bzw. behoben",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-DBT-01",
+   "summary": "Semantik einmalig als Sem-Trait, T0 über Concrete, IR-Builder + Verifier; 64 Tests; TLB clean-room neu formuliert",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 12:40"
+ "updatedAt": "2026-10-14 13:10"
 }

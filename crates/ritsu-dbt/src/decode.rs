@@ -93,26 +93,11 @@ impl Cond {
         self as u32
     }
 
-    /// Evaluates the condition, exactly as the Arm ARM `ConditionHolds()` pseudocode:
-    /// `cond[3:1]` selects the base test, `cond[0]` inverts it except for `1111`.
+    /// Evaluates the condition on `f` (Arm ARM `ConditionHolds()`). The pseudocode
+    /// lives in the semantic layer, [`crate::sem::condition_holds`].
     #[must_use]
     pub const fn holds(self, f: Nzcv) -> bool {
-        let bits = self.bits();
-        let base = match bits >> 1 {
-            0b000 => f.z(),
-            0b001 => f.c(),
-            0b010 => f.n(),
-            0b011 => f.v(),
-            0b100 => f.c() && !f.z(),
-            0b101 => f.n() == f.v(),
-            0b110 => f.n() == f.v() && !f.z(),
-            _ => true,
-        };
-        if bits & 1 == 1 && bits != 0b1111 {
-            !base
-        } else {
-            base
-        }
+        crate::sem::condition_holds(self, f)
     }
 }
 

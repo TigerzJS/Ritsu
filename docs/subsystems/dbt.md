@@ -168,6 +168,41 @@ Damit ist jede Beschreibung für alle drei Backends gleich gültig.
    "150 Operationen × 3".
 3. **Differenztests** T0 ↔ T1 ↔ T2 ↔ Referenz-Hardware auf Befehlsebene (§16).
 
+### 3.2.1 Umsetzung (WP-DBT-01)
+
+Code: `crates/ritsu-dbt/src/sem/`. Die Beschreibungen stehen in `sem/a64.rs` (`sem::lower(s, inst)` verteilt
+ein `Inst` auf seine Beschreibung), die Pseudocode-Primitive (`AddWithCarry`, `ConditionHolds`, Shifts mit
+`ShiftReg`-Semantik, Vergleiche) in `sem/prim.rs`, das T0-Backend in `sem/concrete.rs`, das T2-Backend in
+`ir/builder.rs`. `interp.rs` enthält nur noch Fetch und Dispatch.
+
+| Gruppe | `Sem`-Operationen (Stand WP-DBT-01) |
+|---|---|
+| Konstanten/PC | `imm(ty, v)`, `pc_rel(offset)` |
+| Gast-Zustand | `gpr(r, ty)`, `set_gpr(r, ty, v)`, `nzcv()`, `set_nzcv(f)` |
+| Integer | `add_with_carry(ty, a, b, cin) -> (V, F)`, `binop(op, ty, a, b)` mit `op ∈ {Add, Sub, And, Or, Xor, Shl, Lshr, Ashr, Ror}`, `not`, `icmp(cc, ty, a, b)` (Cranelift-`IntCC`-Satz), `select`, `cond_holds(cond, f)` |
+| Kontrolle | `branch(Option<cond>, offset, kind)`, `branch_indirect(target, kind)`, `raise(exception)` |
+
+Abweichungen von der Skizze oben, jeweils mit Grund:
+
+* **PC nur relativ** (`pc_rel`, `branch` mit Offset): Beschreibungen sehen nie die absolute PC. T1/T2 können so
+  positionsunabhängigen Code erzeugen (§14); in der IR sind alle Adressen relativ zum Regionseinstieg.
+* **`Ty` umfasst nur skalare Integer bis 64 Bit** (`I1, I8, I16, I32, I64`), Werte in kanonischer Form (Bits
+  oberhalb der Breite sind 0). 128-Bit- und Vektorwerte bekommen in WP-DBT-10 einen eigenen assoziierten
+  Werttyp, damit T0-Integercode nicht mit `u128` rechnet.
+* **`BranchKind` (`Jump`, `Call`, `Return`)** ist nur ein Hinweis für Vorhersagestrukturen (Return-Stack, §5.2)
+  und ändert nie die Architekturwirkung.
+* **Reihenfolge-Regeln** statt Transaktionen: Alles, was eine Exception auslösen kann, kommt vor dem ersten
+  Architektur-Schreibzugriff; höchstens ein Kontrolltransfer pro Befehl, als letzte Operation. Debug-Builds von
+  `Concrete` prüfen beides und zusätzlich, dass jeder Wert mit dem Typ benutzt wird, mit dem er erzeugt wurde.
+* Speicher- und Systemregister-Operationen (`load`, `store`, `MemAttrs`, …) kommen mit WP-DBT-02/-06/-07 dazu.
+
+Prüfung: Operations-Konformanztests (`sem/conformance.rs`) prüfen jede Operation des `Concrete`-Backends über das
+Trait gegen unabhängig formulierte Orakel (128-Bit-Arithmetik, Bit-für-Bit-Schleifen, ausgeschriebene
+Bedingungstabelle), über alle Typen, Rand- und Zufallswerte. `ir/tests.rs` baut für jedes M0-Befehlswort eine
+Region, verifiziert sie und spielt sie auf `Concrete` zurück; Zustand und Fehler müssen exakt T0 entsprechen
+(auch für einen ganzen Schleifenblock). Stichprobenhafte Mutationen in Primitiven, Beschreibungen und Builder
+wurden von diesen Tests erkannt.
+
 **Helper-Fallback:** Für seltene oder komplexe Befehle darf T1/T2 eine Operation als Aufruf der T0-Semantik
 emittieren (`call helper_exec_inst(state, word)`). Das ist per Konstruktion exakt und erlaubt schrittweises
 Ausrollen. Anforderung: Der Block schreibt vorher alle gecachten Gast-Register zurück.
@@ -213,6 +248,12 @@ Die IR existiert nur für **T2** (und Analysen). T0 und T1 brauchen sie dank E-3
   NZCV-Wert, der erst bei Bedarf materialisiert wird (§6.3).
 * Jede Operation trägt die **Gast-PC** ihres Ursprungsbefehls (für präzise Exceptions, Profiling und
   jitdump-Debuginfo).
+* **Umsetzung (WP-DBT-01):** `crates/ritsu-dbt/src/ir/`. `Region` (Blöcke + Wertetabelle), `Block`, `Value`,
+  `Type`, `Op` (1:1 die `Sem`-Operationen, §3.2.1), `Terminator` (`Jump`, `Branch`, `Exit`), `Exit` (`Direct`,
+  `Indirect`, `Raise`). PC-Werte sind Offsets zum Regionseinstieg (`pc_offset`, `PcRel`, `Exit::Direct`).
+  `ir::Builder` ist das `Sem`-Backend, das die IR erzeugt; `Region::verify` prüft Terminierung, Sprungziele,
+  Argumentanzahl, Typen, Einmal-Definition und Dominanz (Verfügbarkeit auf allen Pfaden). Speicher-, PAC-,
+  FP- und Helper-Operationen aus §4.2 folgen mit den jeweiligen WPs; Codegen erst in WP-DBT-17.
 
 ### 4.2 Operationen (Auswahl)
 
@@ -251,8 +292,8 @@ Ein `Exit` und jeder Slow-Path einer `MayRaise`-Operation erhalten implizit die 
 ### 5.1 T0 – Interpreter
 
 * Referenz-Semantik und Orakel aller Differenztests (ADR-0006); führt kalten Code aus.
-* `step(&mut CpuState, &impl GuestMemory) -> Result<StepOutcome, ExecError>` (M0, §19). Ab WP-DBT-01 über das
-  `Concrete`-Backend der Semantik-Schicht.
+* `step(&mut CpuState, &impl GuestMemory) -> Result<StepOutcome, ExecError>` (M0, §19). Seit WP-DBT-01 über das
+  `Concrete`-Backend der Semantik-Schicht (`interp.rs` macht nur Fetch und Dispatch).
 * Kein `panic!` auf Gast-Daten: Jedes Gast-Problem ist ein `ExecError` und wird zur Gast-Exception. Bei
   `ExecError` bleibt der vCPU-Zustand unverändert (präziser Zustand am fehlerhaften Befehl).
 * FP in T0 über eine **bit-exakte Software-FP-Implementierung** (Arm-`FPRound`-Pseudocode inkl. FPSR-Flags),
@@ -419,8 +460,12 @@ Nur das 16-KiB-Granule wird gemeldet (`ID_AA64MMFR0_EL1.TGran16 = 0b0001`, `TGra
   TLBI-Semantik exakt (`VMALLE1`, `ASIDE1`, `VAE1`, `VAAE1`). Er ist Grundlage und Orakel für das
   Fastpath-Layout.
 * **Blockabbildungen** (32 MiB) werden als 16-KiB-Fragmente gecacht. Weil `TLBI VAE1` auf eine Adresse im Block
-  den *ganzen* Block invalidieren muss, führt der TLB einen ausgerichteten VA-Bereich mit, der alle großen
-  Abbildungen überdeckt; ein VA-Flush in diesem Bereich wird zum vollen Flush (im Skelett umgesetzt und getestet).
+  den *ganzen* Block invalidieren muss (jede gecachte Übersetzung, die für diese VA benutzt werden könnte), führt
+  der TLB das geschlossene VA-Intervall `[lo, hi]` mit, das alle seit dem letzten vollen Flush eingetragenen
+  Blöcke umspannt. Ein VA-Flush innerhalb des Intervalls wird zum vollen Flush; das ist eine zulässige Obermenge,
+  weil Software sich nie auf den Inhalt eines TLB verlassen darf. Außerhalb des Intervalls trifft ein VA-Flush
+  nur seinen eigenen Slot. Das Intervall schrumpft nur beim vollen Flush und deckt daher immer alle noch
+  vorhandenen Fragmente ab (umgesetzt und getestet, inkl. Blöcken am oberen Ende des Adressraums).
 
 ### 7.3 Inline-Fastpath (T1/T2)
 
@@ -1029,7 +1074,7 @@ dieses Dokuments, `make check` grün.
 | WP | Ziel | Abhängig | Risiko | Akzeptanz |
 |---|---|---|---|---|
 | **WP-M0-DBT** | Dieses Dokument + Skelett (Decoder-Teilmenge, T0, TLB, MMU-Trait) | – | | `cargo test/clippy/fmt` grün (erledigt, §19) |
-| **WP-DBT-01** | Semantik-Schicht `Sem` + `Concrete`-Backend + IR-Typdefinitionen; M0-Befehle darauf umgestellt | M0 | ★ (prägt alles) | M0-Tests unverändert grün; Ops-Konformanztests für alle `Sem`-Ops; Review durch architect |
+| **WP-DBT-01** | Semantik-Schicht `Sem` + `Concrete`-Backend + IR-Typdefinitionen; M0-Befehle darauf umgestellt | M0 | ★ (prägt alles) | M0-Tests unverändert grün; Ops-Konformanztests für alle `Sem`-Ops; Review durch architect (umgesetzt, §3.2.1, §19; architect-Review offen) |
 | **WP-DBT-02** | Integer-Basis-ISA in T0: DP-imm (inkl. `DecodeBitMasks`, Bitfield, Extract, `ADR/ADRP`), DP-reg (Shift/Extend, `ADC/SBC`, `CCMP`, `CSEL`-Familie, `MADD/SMULH/UDIV`…, `CLZ/RBIT/REV`), alle Loads/Stores inkl. `LDP/STP`, Pre/Post-Index, Literal; `SVC/BRK`; `MRS/MSR NZCV/TPIDR_EL0/FPCR` | 01 | | Decoder-Tests je Klasse, Encoder-Roundtrip, `DecodeBitMasks` exhaustiv, T0-Tests inkl. Division durch 0 und `INT_MIN/−1` |
 | **WP-DBT-03** | Linux-User-Harness (ELF-Loader, Startstack, Syscalls §16.3) | 02 | | **Meilenstein M1: statisches aarch64-Linux-ELF "hello world" (musl und glibc) läuft im User-Mode über T0** und gibt korrekt aus; Exit-Code stimmt |
 | **WP-DBT-04** | Differenztest-Infrastruktur: Generator, `ritsu-ref-runner`, Golden Files vom Arm-Runner, QEMU-Orakel | 02 (mit test-engineer) | | CI-Job erzeugt/prüft Golden Files; ≥ 10⁵ Vektoren Integer-ISA ohne Abweichung |
@@ -1082,13 +1127,15 @@ dieses Dokuments, `make check` grün.
 | Datei | Inhalt | Tests |
 |---|---|---|
 | `crates/ritsu-mem/src/mmu.rs` | `AccessKind`, `Privilege`, `Access`, `PagePerms`, `FaultKind` (mit `fsc()` nach `ESR_ELx`), `TranslationFault`, Trait `Translate`, `IdentityTranslate` (MMU aus, Address-Size-Fault oberhalb der PA-Größe) | Rechte-Matrix, FSC-Codes, Identität/Fault |
-| `crates/ritsu-mem/src/tlb.rs` | Direkt abgebildeter Referenz-TLB für 16 KiB: `insert`, `lookup` (mit ASID/global/Rechten), `flush_all`, `flush_asid`, `flush_va`, `flush_va_all_asids`, Block-Fragment-Behandlung | Treffer/Miss, Konflikte, TLBI-Semantik, Blöcke |
-| `crates/ritsu-dbt/src/cpu.rs` | `CpuState` (`#[repr(C)]`: `x[31]`, `sp_el0/el1`, `pc`, `Nzcv`, EL, `PSTATE.SP`, `DAIF`, `SysRegs`-Platzhalter, `PacKeys` mit geschwärztem `Debug`), `XReg`, `GpReg` (SP/ZR aufgelöst) | SP-Auswahl, ZR, 32-Bit-Zero-Extension |
-| `crates/ritsu-dbt/src/decode.rs` | `decode(u32) -> Inst` für `MOVN/MOVZ/MOVK`, `ADD/ADDS/SUB/SUBS (imm)`, `B`, `BL`, `BR`, `BLR`, `RET`, `CBZ/CBNZ`, `B.cond`, `NOP`; `Cond` mit `holds()` nach `ConditionHolds()` | bekannte Wörter, Register-31-Regeln, Unallocated, Offsets an den Grenzen, Encoder-Roundtrip auf 140 000 Zufallswörtern |
-| `crates/ritsu-dbt/src/sem.rs` | `add_with_carry64/32` (Arm-Pseudocode) | gegen 128-Bit-Orakel, Randfälle |
-| `crates/ritsu-dbt/src/interp.rs` | T0: `step`, `step_with`, `fetch`, `execute`, `ExecError` (Undefined, PC-Alignment, Instruction Abort, Bus-Fehler), `StepOutcome` | Countdown-Schleife, Call/Return, `BLR X30`, CBZ 32/64, Flags 32/64, alle 16 Bedingungen × 16 Flag-Kombinationen, präziser Zustand bei Fehlern |
+| `crates/ritsu-mem/src/tlb.rs` | Direkt abgebildeter Referenz-TLB für 16 KiB: `insert`, `lookup` (mit ASID/global/Rechten), `flush_all`, `flush_asid`, `flush_va`, `flush_va_all_asids`, Block-Fragment-Behandlung über ein konservatives VA-Intervall `[lo, hi]` (§7.1) | Treffer/Miss, Konflikte, TLBI-Semantik, Blöcke, Blöcke am Adressraumende |
+| `crates/ritsu-dbt/src/cpu.rs` | `CpuState` (`#[repr(C)]`: `x[31]`, `sp_el0/el1`, `pc`, `Nzcv`, EL, `PSTATE.SP`, `DAIF`, `SysRegs`-Platzhalter, `PacKeys` mit geschwärztem `Debug`; alle eingebetteten Typen `#[repr(C)]`/`#[repr(u8)]`/`#[repr(transparent)]`), `XReg`, `GpReg` (SP/ZR aufgelöst) | SP-Auswahl, ZR, 32-Bit-Zero-Extension, JIT-ABI-Offsets per `offset_of!` |
+| `crates/ritsu-dbt/src/decode.rs` | `decode(u32) -> Inst` für `MOVN/MOVZ/MOVK`, `ADD/ADDS/SUB/SUBS (imm)`, `B`, `BL`, `BR`, `BLR`, `RET`, `CBZ/CBNZ`, `B.cond`, `NOP`; `Cond` mit `holds()` (delegiert an `sem::condition_holds`) | bekannte Wörter, Register-31-Regeln, Unallocated, Offsets an den Grenzen, Encoder-Roundtrip auf 140 000 Zufallswörtern |
+| `crates/ritsu-dbt/src/sem/` | Trait `Sem`, `Ty`, `BinOp`, `CmpOp`, `BranchKind`, `Exception` (`mod.rs`); Beschreibungen der M0-Befehle + `lower` (`a64.rs`); Pseudocode-Primitive (`prim.rs`); T0-Backend `Concrete` (`concrete.rs`) (WP-DBT-01) | Konformanz jeder Operation gegen unabhängige Orakel über alle Typen (`conformance.rs`), `add_with_carry64/32` gegen 128-Bit-Orakel, Debug-Prüfungen für Beschreibungsfehler |
+| `crates/ritsu-dbt/src/ir/` | IR-Typen (`Region`, `Block`, `Value`, `Type`, `Op`, `Terminator`, `Exit`), `Region::verify`, `Builder` (IR-Backend von `Sem`) (WP-DBT-01) | M0-Befehle: IR-Replay = T0 (Zustand und Fehler) auf Zufallszuständen, ganzer Schleifenblock, Form bedingter Sprünge, relative PCs, Verifier-Negativtests |
+| `crates/ritsu-dbt/src/interp.rs` | T0: `step`, `step_with`, `fetch`, `execute` (seit WP-DBT-01 nur Fetch + Dispatch an `sem::lower` auf `Concrete`), `ExecError` (Undefined, PC-Alignment, Instruction Abort, Bus-Fehler), `StepOutcome` | Countdown-Schleife, Call/Return, `BLR X30`, CBZ 32/64, Flags 32/64, alle 16 Bedingungen × 16 Flag-Kombinationen, präziser Zustand bei Fehlern |
 | `crates/ritsu-dbt/src/tier.rs` | Schnittstellen `Tier`, `TbFlags`, `BlockKey`, `BlockId`, `TranslateError`, Traits `CodeSource`, `Translator`, `TranslationCache` (ohne Implementierung) | – |
 | `crates/ritsu-dbt/src/asm.rs` | Test-Encoder (nur `#[cfg(test)]`), gegen bekannte Wörter geprüft | – |
 
-Bewusst ausgelassen im Skelett: Semantik-Schicht `Sem` (WP-DBT-01; M0 führt `Inst` direkt aus), `BranchAddr`/TBI
-bei Sprüngen, alle weiteren Befehlsklassen, Hints außer `NOP`.
+Bewusst ausgelassen: `BranchAddr`/TBI bei Sprüngen (WP-DBT-06, zentral in `Sem::branch_indirect` der Backends),
+Speicher-/Systemregister-Operationen in `Sem` (WP-DBT-02/-07), 128-Bit-/Vektorwerte (WP-DBT-10), T1-`Template`-
+Backend (WP-DBT-12), IR-Codegen und -Passes (WP-DBT-17), alle weiteren Befehlsklassen, Hints außer `NOP`.

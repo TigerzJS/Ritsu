@@ -1,16 +1,19 @@
 //! T0: the reference interpreter.
 //!
 //! T0 executes one instruction per [`step`]: fetch at `PC` through a [`Translate`]
-//! implementation, [`decode`], execute on [`CpuState`]. It is the semantic oracle for the
-//! differential tests of T1/T2 (ADR-0006) and runs cold code.
+//! implementation, [`decode`], then run the instruction's description from the semantic
+//! layer ([`crate::sem::lower`]) on the [`Concrete`] backend. This module contains no
+//! instruction semantics of its own (ADR-0006: one semantic source); it only fetches
+//! and dispatches. T0 is the oracle for the differential tests of T1/T2 and runs cold
+//! code.
 //!
 //! Guest input is hostile: nothing here panics on any instruction word, address or
 //! register value. Everything the guest can trigger is an [`ExecError`], which the
 //! exception layer (WP-DBT-07) turns into the architectural guest exception.
 
-use crate::cpu::{CpuState, ExceptionLevel, GpReg, XReg};
-use crate::decode::{AddSubOp, Inst, MoveWideOp, decode};
-use crate::sem::{add_with_carry32, add_with_carry64};
+use crate::cpu::{CpuState, ExceptionLevel};
+use crate::decode::{Inst, decode};
+use crate::sem::{self, concrete::Concrete};
 use ritsu_core::GuestVirtAddr;
 use ritsu_mem::mmu::{
     Access, AccessKind, IdentityTranslate, Privilege, Translate, TranslationFault,
@@ -128,116 +131,16 @@ pub fn fetch(
 ///
 /// [`ExecError::Undefined`] for [`Inst::Unknown`]; the state is then unchanged.
 pub fn execute(cpu: &mut CpuState, inst: Inst) -> Result<StepOutcome, ExecError> {
-    let pc = cpu.pc;
-    let next = pc.wrapping_add(4);
-    // Branch targets are written to PC as-is. Not yet modeled: AArch64.BranchAddr()
-    // top-byte handling when TBI is enabled (WP-DBT-06). With TBI off this is exact; a
-    // non-canonical target faults on the next fetch, as architected.
-    let outcome = match inst {
-        Inst::MoveWide {
-            op,
-            sf,
-            shift,
-            imm16,
-            rd,
-        } => {
-            let field = u64::from(imm16) << shift;
-            let value = match op {
-                MoveWideOp::Movz => field,
-                MoveWideOp::Movn => !field,
-                MoveWideOp::Movk => (cpu.read(rd) & !(0xffff << shift)) | field,
-            };
-            cpu.write_sized(rd, sf, value);
-            cpu.pc = next;
-            StepOutcome::Sequential
-        }
-        Inst::AddSubImm {
-            op,
-            sf,
-            set_flags,
-            imm12,
-            shift12,
-            rd,
-            rn,
-        } => {
-            let imm = u64::from(imm12) << if shift12 { 12 } else { 0 };
-            let (operand2, carry_in) = match op {
-                AddSubOp::Add => (imm, false),
-                AddSubOp::Sub => (!imm, true),
-            };
-            let operand1 = cpu.read(rn);
-            let (result, flags) = if sf {
-                add_with_carry64(operand1, operand2, carry_in)
-            } else {
-                // Truncation to the 32-bit operand width is the architected behaviour.
-                let (r, f) = add_with_carry32(operand1 as u32, operand2 as u32, carry_in);
-                (u64::from(r), f)
-            };
-            if set_flags {
-                cpu.nzcv = flags;
-            }
-            cpu.write_sized(rd, sf, result);
-            cpu.pc = next;
-            StepOutcome::Sequential
-        }
-        Inst::B { offset } => {
-            cpu.pc = pc.wrapping_add_signed(offset);
-            StepOutcome::Branch { taken: true }
-        }
-        Inst::Bl { offset } => {
-            cpu.write(GpReg::X(XReg::LR), next);
-            cpu.pc = pc.wrapping_add_signed(offset);
-            StepOutcome::Branch { taken: true }
-        }
-        Inst::Br { rn } | Inst::Ret { rn } => {
-            cpu.pc = cpu.read(rn);
-            StepOutcome::Branch { taken: true }
-        }
-        Inst::Blr { rn } => {
-            // Read the target before writing X30: `BLR X30` must jump to the old LR.
-            let target = cpu.read(rn);
-            cpu.write(GpReg::X(XReg::LR), next);
-            cpu.pc = target;
-            StepOutcome::Branch { taken: true }
-        }
-        Inst::CompareBranch {
-            nonzero,
-            sf,
-            rt,
-            offset,
-        } => {
-            let is_zero = cpu.read_sized(rt, sf) == 0;
-            let taken = is_zero != nonzero;
-            cpu.pc = if taken {
-                pc.wrapping_add_signed(offset)
-            } else {
-                next
-            };
-            StepOutcome::Branch { taken }
-        }
-        Inst::BCond { cond, offset } => {
-            let taken = cond.holds(cpu.nzcv);
-            cpu.pc = if taken {
-                pc.wrapping_add_signed(offset)
-            } else {
-                next
-            };
-            StepOutcome::Branch { taken }
-        }
-        Inst::Nop => {
-            cpu.pc = next;
-            StepOutcome::Sequential
-        }
-        Inst::Unknown(word) => return Err(ExecError::Undefined { pc, word }),
-    };
-    Ok(outcome)
+    let mut backend = Concrete::new(cpu);
+    sem::lower(&mut backend, inst)?;
+    Ok(backend.finish())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::asm;
-    use crate::cpu::Nzcv;
+    use crate::cpu::{GpReg, Nzcv};
     use crate::decode::Cond;
     use ritsu_core::GuestPhysAddr;
     use ritsu_mem::RamRegion;

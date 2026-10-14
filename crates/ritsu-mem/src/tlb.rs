@@ -14,10 +14,20 @@
 //! * [`Tlb::flush_va_all_asids`] — `TLBI VAAE1`: the entry for one VA, any ASID.
 //!
 //! Block mappings (e.g. 32 MiB level-2 blocks) are cached as individual 16 KiB
-//! fragments. A by-VA invalidation must remove the *whole* block, but the other
-//! fragments live in other slots. Like QEMU, the TLB therefore tracks one aligned VA
-//! range covering all large mappings it has seen and falls back to a full flush when a
-//! by-VA invalidation hits that range.
+//! fragments, each in the slot of its own page. Architecturally, a TLB maintenance
+//! instruction by VA (Arm ARM D8.13, "TLB maintenance instructions") must remove *every*
+//! cached translation that could be used to translate that VA. For a block mapping
+//! that is each fragment of the block, wherever it sits, even if the VA itself was
+//! never looked up. Invalidating *more* than required is always permitted, because a
+//! TLB is a cache whose contents software can never rely on.
+//!
+//! This TLB therefore keeps one conservative summary of all block mappings inserted
+//! since the last full flush: the closed VA interval `[lo, hi]` spanning all of them.
+//! A by-VA invalidation that falls inside the interval may hit a fragment in an
+//! unrelated slot, so it invalidates everything (a superset of what is required). A
+//! by-VA invalidation outside the interval cannot belong to any cached block and only
+//! touches its own slot. The interval only shrinks on a full flush, so it always covers
+//! every fragment still present.
 
 use crate::mmu::{Access, PagePerms};
 use ritsu_core::{GuestPhysAddr, GuestVirtAddr, PAGE_SIZE_16K};
@@ -82,9 +92,9 @@ impl TlbEntry {
 pub struct Tlb {
     slots: Box<[Option<TlbEntry>]>,
     mask: usize,
-    /// `(base, mask)` of an aligned VA range covering every large mapping inserted
-    /// since the last full flush.
-    large: Option<(u64, u64)>,
+    /// Closed VA interval `[lo, hi]` covering every block mapping inserted since the
+    /// last full flush (see the module documentation).
+    blocks: Option<BlockSpan>,
 }
 
 impl Tlb {
@@ -98,7 +108,7 @@ impl Tlb {
         Self {
             slots: vec![None; n].into_boxed_slice(),
             mask: n - 1,
-            large: None,
+            blocks: None,
         }
     }
 
@@ -129,7 +139,7 @@ impl Tlb {
     pub fn insert(&mut self, entry: TlbEntry) {
         let va = entry.va_page.get();
         if u32::from(entry.map_shift) > TLB_PAGE_SHIFT {
-            self.track_large(va, u32::from(entry.map_shift));
+            self.note_block(va, u32::from(entry.map_shift));
         }
         let i = self.index(va);
         if let Some(slot) = self.slots.get_mut(i) {
@@ -166,7 +176,7 @@ impl Tlb {
     /// Invalidates everything (`TLBI VMALLE1`).
     pub fn flush_all(&mut self) {
         self.slots.fill(None);
-        self.large = None;
+        self.blocks = None;
     }
 
     /// Invalidates all non-global entries of `asid` (`TLBI ASIDE1`).
@@ -191,11 +201,9 @@ impl Tlb {
 
     fn flush_va_where(&mut self, va: GuestVirtAddr, pred: impl Fn(&TlbEntry) -> bool) {
         let page = va.get() & !PAGE_MASK;
-        if let Some((base, mask)) = self.large
-            && page & mask == base
-        {
-            // The VA may belong to a fragmented block mapping whose other fragments
-            // sit in other slots; we cannot find them cheaply, so flush everything.
+        if self.blocks.is_some_and(|b| b.contains(page)) {
+            // The VA may belong to a block mapping whose fragments sit in other slots.
+            // Invalidating everything is a permitted superset of the required effect.
             self.flush_all();
             return;
         }
@@ -207,24 +215,35 @@ impl Tlb {
         }
     }
 
-    fn track_large(&mut self, va: u64, shift: u32) {
-        let new_mask = if shift >= 64 {
-            0
-        } else {
-            !((1u64 << shift) - 1)
-        };
-        let (base, mask) = match self.large {
-            None => (va & new_mask, new_mask),
-            Some((base, old_mask)) => {
-                // Widen the range until it covers both the old range and the new block.
-                let mut mask = old_mask & new_mask;
-                while (base ^ va) & mask != 0 {
-                    mask <<= 1;
-                }
-                (base & mask, mask)
-            }
-        };
-        self.large = Some((base, mask));
+    /// Records that a fragment of the block mapping of size `2^shift` containing `va`
+    /// is now cached.
+    fn note_block(&mut self, va: u64, shift: u32) {
+        // `shift` comes from `TlbEntry::map_shift`, which is clamped to `14..=63`.
+        let size_minus_one = (1u64 << shift.min(63)) - 1;
+        let lo = va & !size_minus_one;
+        // `lo` is aligned to the block size, so `lo + size - 1` cannot overflow.
+        let hi = lo | size_minus_one;
+        self.blocks = Some(match self.blocks {
+            None => BlockSpan { lo, hi },
+            Some(b) => BlockSpan {
+                lo: b.lo.min(lo),
+                hi: b.hi.max(hi),
+            },
+        });
+    }
+}
+
+/// Closed VA interval `[lo, hi]` (inclusive, so the top of the address space is
+/// representable without overflow).
+#[derive(Debug, Clone, Copy)]
+struct BlockSpan {
+    lo: u64,
+    hi: u64,
+}
+
+impl BlockSpan {
+    fn contains(self, va: u64) -> bool {
+        self.lo <= va && va <= self.hi
     }
 }
 
@@ -418,6 +437,38 @@ mod tests {
         // Second block is covered by the widened range → full flush.
         tlb.flush_va(GuestVirtAddr(0x8100_0000), 1);
         assert!(tlb.is_empty());
+    }
+
+    #[test]
+    fn block_span_at_top_of_address_space_does_not_overflow() {
+        let mut tlb = Tlb::new(64);
+        // A 32 MiB kernel block ending at the last byte of the VA space, and the
+        // largest representable mapping size.
+        for shift in [25u8, 63] {
+            tlb.insert(TlbEntry::new(
+                GuestVirtAddr(0xffff_ffff_fe00_0000),
+                GuestPhysAddr(0),
+                RW0,
+                0,
+                true,
+                shift,
+            ));
+            tlb.insert(page(0x8000, 0x0, 1, false));
+            tlb.flush_va(GuestVirtAddr(u64::MAX), 1);
+            assert!(tlb.is_empty(), "shift {shift}");
+        }
+        // Outside every recorded block only the own slot is touched.
+        tlb.insert(TlbEntry::new(
+            GuestVirtAddr(0xffff_ffff_fe00_0000),
+            GuestPhysAddr(0),
+            RW0,
+            0,
+            true,
+            25,
+        ));
+        tlb.insert(page(0x8000, 0x0, 1, false));
+        tlb.flush_va(GuestVirtAddr(0xffff_ffff_fdff_c000), 1);
+        assert_eq!(tlb.len(), 2);
     }
 
     #[test]

@@ -257,12 +257,13 @@
      "name": "WP-DBT-01",
      "title": "Semantik-Schicht Sem + IR-Typen, M0-Befehle umgestellt",
      "ms": "M1",
-     "status": "wip",
+     "status": "done",
      "risk": true,
      "deps": "",
      "accept": "",
      "owner": "dbt-engineer",
-     "weight": 2
+     "weight": 2,
+     "note": "Sem-Trait + Concrete (T0) + IR/Builder/Verifier; Code-Review: freigeben (4 minor, 4 nit als Nacharbeit)."
     },
     {
      "id": "WP-DBT-02",

@@ -2,18 +2,25 @@
 //!
 //! [`CpuState`] is `#[repr(C)]` because translated code (T1/T2) will address its fields
 //! through a pinned base register at fixed offsets; the field order is therefore part of
-//! the JIT ABI once WP-DBT-08 lands. See `docs/subsystems/dbt.md` §6.
+//! the JIT ABI once WP-DBT-12 lands. Every type embedded in it is `#[repr(C)]`,
+//! `#[repr(transparent)]` or `#[repr(u8)]` so that the offsets are defined by the
+//! language rather than by the compiler's layout choice; `tests::jit_abi_offsets` pins
+//! them. See `docs/subsystems/dbt.md` §6.
 
 use core::fmt;
 
 /// Exception level the vCPU executes at. The guest has no EL2/EL3 (vmapple platform,
 /// ADR-0004), so only EL0 and EL1 exist.
+///
+/// `#[repr(u8)]` with the architectural `PSTATE.EL` value as discriminant, because it is
+/// part of [`CpuState`]'s JIT ABI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum ExceptionLevel {
     /// User mode.
-    El0,
+    El0 = 0,
     /// Kernel mode (XNU).
-    El1,
+    El1 = 1,
 }
 
 /// A general-purpose register number `0..=30` (`X0`–`X30`).
@@ -183,6 +190,7 @@ impl fmt::Debug for Nzcv {
 ///
 /// `Debug` is redacted: keys are guest secrets and must not end up in host logs.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[repr(C)]
 pub struct PacKey {
     /// `AP*KeyLo_EL1`.
     pub lo: u64,
@@ -197,8 +205,9 @@ impl fmt::Debug for PacKey {
 }
 
 /// The five arm64e pointer-authentication keys. Placeholder storage: the PAC algorithm
-/// (implementation-defined, reported via `ID_AA64ISAR1_EL1.API/GPI`) lands in WP-DBT-12.
+/// (implementation-defined, reported via `ID_AA64ISAR1_EL1.API/GPI`) lands in WP-DBT-11.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(C)]
 pub struct PacKeys {
     /// Instruction key A (`APIAKey`).
     pub ia: PacKey,
@@ -215,6 +224,7 @@ pub struct PacKeys {
 /// EL1/EL0 system registers needed early. Placeholder: the final register file is
 /// generated from a table (encoding, access rules, reset value) in WP-DBT-07.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(C)]
 pub struct SysRegs {
     /// `SCTLR_EL1`: MMU enable, alignment checks, PAC enables, `SPAN`, `UCI`, …
     pub sctlr_el1: u64,
@@ -428,6 +438,53 @@ mod tests {
         assert!(!s.contains("1122334455667788"));
         assert!(!s.contains(&0x1122_3344_5566_7788u64.to_string()));
         assert!(s.contains("redacted"));
+    }
+
+    /// Pins the layout translated code will address relative to the state pointer
+    /// (`docs/subsystems/dbt.md` §6.1). A change here is a JIT-ABI change: update the
+    /// expected values deliberately, together with every emitter that uses them.
+    #[test]
+    fn jit_abi_offsets() {
+        use core::mem::{align_of, offset_of, size_of};
+
+        assert_eq!(offset_of!(CpuState, x), 0);
+        assert_eq!(size_of::<[u64; 31]>(), 248);
+        assert_eq!(offset_of!(CpuState, sp_el0), 248);
+        assert_eq!(offset_of!(CpuState, sp_el1), 256);
+        assert_eq!(offset_of!(CpuState, pc), 264);
+        assert_eq!(offset_of!(CpuState, nzcv), 272);
+        assert_eq!(offset_of!(CpuState, el), 276);
+        assert_eq!(offset_of!(CpuState, sp_sel), 277);
+        assert_eq!(offset_of!(CpuState, daif), 278);
+        assert_eq!(offset_of!(CpuState, sys), 280);
+        assert_eq!(offset_of!(CpuState, pac), 280 + 15 * 8);
+        assert_eq!(size_of::<CpuState>(), 400 + 5 * 16);
+        assert_eq!(align_of::<CpuState>(), 8);
+
+        // Field types whose representation the JIT relies on.
+        assert_eq!(size_of::<Nzcv>(), 4);
+        assert_eq!(size_of::<ExceptionLevel>(), 1);
+        assert_eq!(ExceptionLevel::El0 as u8, 0);
+        assert_eq!(ExceptionLevel::El1 as u8, 1);
+        assert_eq!(size_of::<bool>(), 1);
+
+        // System registers T1 reads/writes inline (MRS/MSR TPIDR*, FPCR/FPSR, NZCV path).
+        assert_eq!(offset_of!(SysRegs, sctlr_el1), 0);
+        assert_eq!(offset_of!(SysRegs, tpidr_el0), 10 * 8);
+        assert_eq!(offset_of!(SysRegs, tpidrro_el0), 11 * 8);
+        assert_eq!(offset_of!(SysRegs, tpidr_el1), 12 * 8);
+        assert_eq!(offset_of!(SysRegs, fpcr), 13 * 8);
+        assert_eq!(offset_of!(SysRegs, fpsr), 14 * 8);
+        assert_eq!(size_of::<SysRegs>(), 15 * 8);
+
+        // PAC keys (inline PAC sequences in T1/T2, WP-DBT-11).
+        assert_eq!(offset_of!(PacKey, lo), 0);
+        assert_eq!(offset_of!(PacKey, hi), 8);
+        assert_eq!(offset_of!(PacKeys, ia), 0);
+        assert_eq!(offset_of!(PacKeys, ib), 16);
+        assert_eq!(offset_of!(PacKeys, da), 32);
+        assert_eq!(offset_of!(PacKeys, db), 48);
+        assert_eq!(offset_of!(PacKeys, ga), 64);
     }
 
     #[test]
