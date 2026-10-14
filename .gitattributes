@@ -1,0 +1,10 @@
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.efi binary
+*.aml binary
+*.zip binary
+*.dmg binary
+*.air binary
+*.metallib binary
+*.spv binary
+*.png binary

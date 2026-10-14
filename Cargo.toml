@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/ritsu-core",
+    "crates/ritsu-mem",
+    "crates/ritsu-dbt",
+    "crates/ritsu-virtio",
+    "crates/ritsu-platform",
+    "crates/ritsu-gpu-proto",
+    "crates/ritsu-gpu-host",
+    "crates/ritsu-vmm",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "UNLICENSED" # License not decided yet, see docs/OPEN-QUESTIONS.md (O-1)
+repository = "https://github.com/TigerzJS/Ritsu"
+publish = false
+
+[workspace.dependencies]
+ritsu-core = { path = "crates/ritsu-core" }
+ritsu-mem = { path = "crates/ritsu-mem" }
+ritsu-dbt = { path = "crates/ritsu-dbt" }
+ritsu-virtio = { path = "crates/ritsu-virtio" }
+ritsu-platform = { path = "crates/ritsu-platform" }
+ritsu-gpu-proto = { path = "crates/ritsu-gpu-proto" }
+ritsu-gpu-host = { path = "crates/ritsu-gpu-host" }
+thiserror = "2"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+undocumented_unsafe_blocks = "deny"
+todo = "warn"
+unwrap_used = "warn"
+dbg_macro = "deny"
+
+[profile.release]
+debug = "line-tables-only"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
