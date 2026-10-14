@@ -13,20 +13,35 @@
 //!   if destroyed earlier (deferred destruction keyed on the queue timeline).
 //! * Errors caused by guest input are [`GpuError::Guest`]; they never poison the backend.
 
-use crate::caps::{Capabilities, render_pass_support};
+use crate::caps::{Capabilities, EmulationPolicy, render_pipeline_support, texture_support};
+use crate::encoder::EncoderValidator;
 use crate::handle::{Handle, HandleError, HandleTable, RawHandle};
 use crate::model::{
-    BufferDesc, ModelError, PrimitiveType, RenderPassDesc, RenderTargetLayout, StorageMode,
-    TextureDesc,
+    AttachmentSlot, BufferDesc, DepthStencilDesc, MAX_BUFFER_BINDINGS, MAX_SAMPLER_BINDINGS,
+    MAX_TEXTURE_BINDINGS, ModelError, PipelineTargets, PrimitiveType, RenderPassDesc,
+    RenderPipelineDesc, SamplerDesc, ShaderStage, StorageMode, StoreAction, TextureDesc,
+    TextureViewDesc,
 };
 
 /// Backend-neutral buffer identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BufferId(pub RawHandle);
 
-/// Backend-neutral texture identifier.
+/// Backend-neutral texture identifier (textures and texture views).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextureId(pub RawHandle);
+
+/// Backend-neutral sampler state identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SamplerId(pub RawHandle);
+
+/// Backend-neutral depth/stencil state identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DepthStencilStateId(pub RawHandle);
+
+/// Backend-neutral render pipeline state identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RenderPipelineId(pub RawHandle);
 
 /// Position on a queue's completion timeline (maps to a Vulkan timeline semaphore value).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -106,6 +121,46 @@ pub enum GpuCommand {
     /// Start a render encoder (attachments, resolve targets, clear values; validated with
     /// [`RenderPassDesc::validate`] against the backend's textures).
     BeginRenderPass(Box<RenderPassDesc<TextureId>>),
+    /// Replace a deferred (`MTLStoreActionUnknown`) store action of the open render pass.
+    SetStoreAction {
+        /// Attachment.
+        attachment: AttachmentSlot,
+        /// New, known store action.
+        action: StoreAction,
+    },
+    /// Bind a render pipeline state (must match the open pass).
+    SetRenderPipelineState(RenderPipelineId),
+    /// Bind a depth/stencil state (`None` = Metal's default state).
+    SetDepthStencilState(Option<DepthStencilStateId>),
+    /// Bind a buffer to the vertex stage's buffer argument table.
+    SetVertexBuffer {
+        /// Argument table index.
+        index: u32,
+        /// Buffer (`None` = unbind).
+        buffer: Option<BufferId>,
+        /// Byte offset (< buffer length).
+        offset: u64,
+        /// Stride for layouts with dynamic stride (`None` = the layout's stride).
+        attribute_stride: Option<u64>,
+    },
+    /// Bind a texture to a stage's texture argument table.
+    SetTexture {
+        /// Stage.
+        stage: ShaderStage,
+        /// Argument table index.
+        index: u32,
+        /// Texture (`None` = unbind).
+        texture: Option<TextureId>,
+    },
+    /// Bind a sampler state to a stage's sampler argument table.
+    SetSamplerState {
+        /// Stage.
+        stage: ShaderStage,
+        /// Argument table index.
+        index: u32,
+        /// Sampler (`None` = unbind).
+        sampler: Option<SamplerId>,
+    },
     /// End the render encoder.
     EndRenderPass,
     /// Non-indexed draw.
@@ -177,12 +232,74 @@ pub trait GpuBackend {
     /// Invalid descriptor, memory budget exhausted, host failure.
     fn create_texture(&mut self, desc: &TextureDesc) -> Result<TextureId, GpuError>;
 
-    /// Destroys a texture (deferred like [`GpuBackend::destroy_buffer`]).
+    /// Destroys a texture or texture view (deferred like [`GpuBackend::destroy_buffer`]). A
+    /// texture keeps its storage while views of it exist (Metal views retain their parent).
     ///
     /// # Errors
     ///
     /// Invalid or stale id.
     fn destroy_texture(&mut self, id: TextureId) -> Result<(), GpuError>;
+
+    /// Creates a view of a texture or of another view; returns a texture id.
+    ///
+    /// # Errors
+    ///
+    /// Invalid parent, view not allowed for the parent ([`TextureViewDesc::validate`]).
+    fn create_texture_view(
+        &mut self,
+        parent: TextureId,
+        desc: &TextureViewDesc,
+    ) -> Result<TextureId, GpuError>;
+
+    /// Creates a sampler state.
+    ///
+    /// # Errors
+    ///
+    /// Invalid descriptor, host failure.
+    fn create_sampler(&mut self, desc: &SamplerDesc) -> Result<SamplerId, GpuError>;
+
+    /// Destroys a sampler state (deferred like [`GpuBackend::destroy_buffer`]).
+    ///
+    /// # Errors
+    ///
+    /// Invalid or stale id.
+    fn destroy_sampler(&mut self, id: SamplerId) -> Result<(), GpuError>;
+
+    /// Creates a depth/stencil state.
+    ///
+    /// # Errors
+    ///
+    /// Invalid descriptor, host failure.
+    fn create_depth_stencil_state(
+        &mut self,
+        desc: &DepthStencilDesc,
+    ) -> Result<DepthStencilStateId, GpuError>;
+
+    /// Destroys a depth/stencil state (deferred like [`GpuBackend::destroy_buffer`]).
+    ///
+    /// # Errors
+    ///
+    /// Invalid or stale id.
+    fn destroy_depth_stencil_state(&mut self, id: DepthStencilStateId) -> Result<(), GpuError>;
+
+    /// Creates a render pipeline state. Shader functions are not part of the descriptor yet
+    /// (WP-SC-09/12); a Vulkan backend must reject draws with such a pipeline as unimplemented
+    /// instead of drawing without shaders.
+    ///
+    /// # Errors
+    ///
+    /// Invalid descriptor, device gaps, host failure.
+    fn create_render_pipeline(
+        &mut self,
+        desc: &RenderPipelineDesc,
+    ) -> Result<RenderPipelineId, GpuError>;
+
+    /// Destroys a render pipeline state (deferred like [`GpuBackend::destroy_buffer`]).
+    ///
+    /// # Errors
+    ///
+    /// Invalid or stale id.
+    fn destroy_render_pipeline(&mut self, id: RenderPipelineId) -> Result<(), GpuError>;
 
     /// Validates and submits a command buffer; returns its timeline position.
     ///
@@ -206,7 +323,14 @@ struct NullBuffer {
 #[derive(Debug)]
 struct NullTexture {
     desc: TextureDesc,
+    /// Bytes charged against the budget (0 for views and memoryless textures).
     bytes: u64,
+    /// Texture this view was made of (`None` for textures).
+    parent: Option<TextureId>,
+    /// Number of live views made of this texture.
+    views: u32,
+    /// The client destroyed it, but views still keep it alive (no longer usable).
+    released: bool,
 }
 
 /// Backend without a GPU: validates every call, tracks objects and memory, executes nothing.
@@ -214,21 +338,41 @@ struct NullTexture {
 #[derive(Debug)]
 pub struct NullBackend {
     caps: Capabilities,
+    /// Emulations this backend claims to implement (device gaps beyond them are rejected).
+    policy: EmulationPolicy,
     buffers: HandleTable<NullBuffer>,
     textures: HandleTable<NullTexture>,
+    samplers: HandleTable<SamplerDesc>,
+    depth_stencil_states: HandleTable<DepthStencilDesc>,
+    /// Only what validation needs (the full descriptor is about 1.7 KiB).
+    pipelines: HandleTable<PipelineTargets>,
     allocated: u64,
     last_submitted: u64,
     commands_executed: u64,
 }
 
 impl NullBackend {
-    /// Creates a null backend that behaves like a device with `caps`.
+    /// Creates a null backend that behaves like a device with `caps` and implements every
+    /// emulation ([`EmulationPolicy::ALL`]: it executes nothing, so any emulation is
+    /// trivially "implemented"). Device gaps that no emulation covers (e.g. sRGB storage
+    /// writes, render targets in sample-only formats) are still rejected. Frontends apply
+    /// their own, usually stricter, policy before the backend.
     #[must_use]
     pub fn new(caps: Capabilities) -> Self {
+        Self::with_policy(caps, EmulationPolicy::ALL)
+    }
+
+    /// Creates a null backend that implements exactly the emulations of `policy`.
+    #[must_use]
+    pub fn with_policy(caps: Capabilities, policy: EmulationPolicy) -> Self {
         Self {
             caps,
+            policy,
             buffers: HandleTable::new(),
             textures: HandleTable::new(),
+            samplers: HandleTable::new(),
+            depth_stencil_states: HandleTable::new(),
+            pipelines: HandleTable::new(),
             allocated: 0,
             last_submitted: 0,
             commands_executed: 0,
@@ -241,10 +385,29 @@ impl NullBackend {
         self.buffers.len()
     }
 
-    /// Live texture count.
+    /// Live texture count: textures and views not yet destroyed, plus destroyed textures
+    /// that views still keep alive.
     #[must_use]
     pub fn live_textures(&self) -> usize {
         self.textures.len()
+    }
+
+    /// Live sampler state count.
+    #[must_use]
+    pub fn live_samplers(&self) -> usize {
+        self.samplers.len()
+    }
+
+    /// Live depth/stencil state count.
+    #[must_use]
+    pub fn live_depth_stencil_states(&self) -> usize {
+        self.depth_stencil_states.len()
+    }
+
+    /// Live render pipeline state count.
+    #[must_use]
+    pub fn live_render_pipelines(&self) -> usize {
+        self.pipelines.len()
     }
 
     /// Bytes currently charged against the device memory budget.
@@ -272,8 +435,35 @@ impl NullBackend {
         Ok(self.buffers.get(Handle::from_raw(id.0))?)
     }
 
+    /// A usable texture (not destroyed by the client).
     fn texture(&self, id: TextureId) -> Result<&NullTexture, GpuError> {
-        Ok(self.textures.get(Handle::from_raw(id.0))?)
+        let t = self.textures.get(Handle::from_raw(id.0))?;
+        if t.released {
+            return Err(stale(id.0).into());
+        }
+        Ok(t)
+    }
+
+    fn pipeline(&self, id: RenderPipelineId) -> Result<&PipelineTargets, GpuError> {
+        Ok(self.pipelines.get(Handle::from_raw(id.0))?)
+    }
+
+    /// Removes a texture whose client handle is gone and that no view needs any more; then
+    /// releases its parent chain the same way. Bounded by the view chain length, iterative.
+    fn drop_texture(&mut self, id: TextureId) -> Result<(), GpuError> {
+        let mut next = Some(id);
+        while let Some(id) = next.take() {
+            let t = self.textures.remove(Handle::from_raw(id.0))?;
+            self.allocated = self.allocated.saturating_sub(t.bytes);
+            if let Some(parent) = t.parent {
+                let p = self.textures.get_mut(Handle::from_raw(parent.0))?;
+                p.views = p.views.saturating_sub(1);
+                if p.released && p.views == 0 {
+                    next = Some(parent);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn charge(&mut self, bytes: u64) -> Result<(), GpuError> {
@@ -298,26 +488,10 @@ impl NullBackend {
         }
     }
 
-    fn validate_render_pass(
-        &self,
-        pass: &RenderPassDesc<TextureId>,
-    ) -> Result<RenderTargetLayout, GpuError> {
-        let layout = pass.validate(&self.caps.limits, |id| {
-            Ok::<_, GpuError>(self.texture(id)?.desc)
-        })?;
-        render_pass_support(&self.caps, &layout)?;
-        Ok(layout)
-    }
-
     fn validate_submission(&self, s: &Submission) -> Result<(), GpuError> {
-        #[derive(PartialEq)]
-        enum Enc {
-            None,
-            /// Render encoder; `true` while a store action is still deferred (`Unknown`).
-            Render(bool),
-            Compute,
-        }
-        let mut enc = Enc::None;
+        let limits = &self.caps.limits;
+        let lookup = |id| Ok::<_, GpuError>(self.texture(id)?.desc);
+        let mut v = EncoderValidator::new();
         for (i, cmd) in s.commands.iter().enumerate() {
             let wrong = |what: &str| GpuError::Guest(format!("command {i}: {what}"));
             match cmd {
@@ -328,9 +502,7 @@ impl NullBackend {
                     dst_offset,
                     size,
                 } => {
-                    if enc != Enc::None {
-                        return Err(wrong("blit inside another encoder"));
-                    }
+                    v.blit()?;
                     self.check_range(*src, *src_offset, *size)?;
                     self.check_range(*dst, *dst_offset, *size)?;
                     // Metal forbids overlapping source and destination ranges.
@@ -343,60 +515,71 @@ impl NullBackend {
                     }
                 }
                 GpuCommand::BeginRenderPass(pass) => {
-                    if enc != Enc::None {
-                        return Err(wrong("nested encoder"));
-                    }
-                    let layout = self.validate_render_pass(pass)?;
-                    enc = Enc::Render(layout.deferred_store_action);
+                    v.begin_render(pass, limits, &self.caps, lookup)?;
                 }
-                GpuCommand::EndRenderPass => match enc {
-                    Enc::Render(false) => enc = Enc::None,
-                    // No command can set a deferred store action yet, so it is still unknown.
-                    Enc::Render(true) => {
-                        return Err(wrong("store action still unknown at the end of encoding"));
-                    }
-                    _ => return Err(wrong("EndRenderPass without render encoder")),
-                },
-                GpuCommand::Draw { .. } => {
-                    if !matches!(enc, Enc::Render(_)) {
-                        return Err(wrong("draw outside render encoder"));
+                GpuCommand::SetStoreAction { attachment, action } => {
+                    v.set_store_action(*attachment, *action, limits, &self.caps, lookup)?;
+                }
+                GpuCommand::SetRenderPipelineState(id) => v.set_pipeline(self.pipeline(*id)?)?,
+                GpuCommand::SetDepthStencilState(id) => {
+                    v.render_command()?;
+                    if let Some(id) = id {
+                        self.depth_stencil_states.get(Handle::from_raw(id.0))?;
                     }
                 }
-                GpuCommand::BeginComputePass => {
-                    if enc != Enc::None {
-                        return Err(wrong("nested encoder"));
+                GpuCommand::SetVertexBuffer {
+                    index,
+                    buffer,
+                    offset,
+                    attribute_stride,
+                } => {
+                    v.set_vertex_buffer(*index, buffer.is_some(), attribute_stride.is_some())?;
+                    if *index >= MAX_BUFFER_BINDINGS {
+                        return Err(wrong("buffer index out of range"));
                     }
-                    enc = Enc::Compute;
-                }
-                GpuCommand::EndComputePass => {
-                    if enc != Enc::Compute {
-                        return Err(wrong("EndComputePass without compute encoder"));
+                    if let Some(b) = buffer
+                        && *offset >= self.buffer(*b)?.desc.length
+                    {
+                        return Err(wrong("vertex buffer offset beyond the buffer"));
                     }
-                    enc = Enc::None;
                 }
+                GpuCommand::SetTexture { index, texture, .. } => {
+                    v.render_command()?;
+                    if *index >= MAX_TEXTURE_BINDINGS {
+                        return Err(wrong("texture index out of range"));
+                    }
+                    if let Some(t) = texture {
+                        self.texture(*t)?;
+                    }
+                }
+                GpuCommand::SetSamplerState { index, sampler, .. } => {
+                    v.render_command()?;
+                    if *index >= MAX_SAMPLER_BINDINGS {
+                        return Err(wrong("sampler index out of range"));
+                    }
+                    if let Some(id) = sampler {
+                        self.samplers.get(Handle::from_raw(id.0))?;
+                    }
+                }
+                GpuCommand::EndRenderPass => v.end_render()?,
+                GpuCommand::Draw { primitive, .. } => v.draw(*primitive)?,
+                GpuCommand::BeginComputePass => v.begin_compute()?,
+                GpuCommand::EndComputePass => v.end_compute()?,
                 GpuCommand::Dispatch {
                     threads_per_threadgroup,
                     ..
-                } => {
-                    if enc != Enc::Compute {
-                        return Err(wrong("dispatch outside compute encoder"));
-                    }
-                    let total = threads_per_threadgroup
-                        .iter()
-                        .try_fold(1u64, |acc, &v| acc.checked_mul(u64::from(v)));
-                    let max = u64::from(self.caps.limits.max_threads_per_threadgroup);
-                    if !matches!(total, Some(t) if (1..=max).contains(&t)) {
-                        return Err(wrong("threads per threadgroup out of range"));
-                    }
-                }
+                } => v.dispatch(*threads_per_threadgroup, limits)?,
             }
         }
-        if enc != Enc::None {
-            return Err(GpuError::Guest(
-                "command buffer ends inside an encoder".into(),
-            ));
-        }
+        v.finish()?;
         Ok(())
+    }
+}
+
+fn stale(raw: RawHandle) -> HandleError {
+    HandleError::Stale {
+        index: raw.index(),
+        generation: raw.generation(),
     }
 }
 
@@ -437,6 +620,7 @@ impl GpuBackend for NullBackend {
 
     fn create_texture(&mut self, desc: &TextureDesc) -> Result<TextureId, GpuError> {
         desc.validate(&self.caps.limits)?;
+        texture_support(&self.caps, &self.policy, desc)?;
         // Memoryless textures live in tile memory on Apple GPUs; on IMR GPUs they become
         // transient attachments that a real backend allocates per pass. No budget charge here.
         let bytes = if desc.storage_mode == StorageMode::Memoryless {
@@ -445,7 +629,14 @@ impl GpuBackend for NullBackend {
             desc.size_in_bytes()?
         };
         self.charge(bytes)?;
-        match self.textures.insert(NullTexture { desc: *desc, bytes }) {
+        let texture = NullTexture {
+            desc: *desc,
+            bytes,
+            parent: None,
+            views: 0,
+            released: false,
+        };
+        match self.textures.insert(texture) {
             Ok(h) => Ok(TextureId(h.raw())),
             Err(e) => {
                 self.allocated -= bytes;
@@ -455,8 +646,85 @@ impl GpuBackend for NullBackend {
     }
 
     fn destroy_texture(&mut self, id: TextureId) -> Result<(), GpuError> {
-        let t = self.textures.remove(Handle::from_raw(id.0))?;
-        self.allocated = self.allocated.saturating_sub(t.bytes);
+        let t = self.textures.get_mut(Handle::from_raw(id.0))?;
+        if t.released {
+            return Err(stale(id.0).into());
+        }
+        if t.views > 0 {
+            // Views retain their parent: keep the storage, refuse further client use.
+            t.released = true;
+            return Ok(());
+        }
+        self.drop_texture(id)
+    }
+
+    fn create_texture_view(
+        &mut self,
+        parent: TextureId,
+        desc: &TextureViewDesc,
+    ) -> Result<TextureId, GpuError> {
+        let view = desc.validate(&self.texture(parent)?.desc)?;
+        texture_support(&self.caps, &self.policy, &view)?;
+        let h = self.textures.insert(NullTexture {
+            desc: view,
+            bytes: 0,
+            parent: Some(parent),
+            views: 0,
+            released: false,
+        })?;
+        match self.textures.get_mut(Handle::from_raw(parent.0)) {
+            Ok(p) => {
+                // At most `DEFAULT_MAX_SLOTS` views exist, far below u32::MAX.
+                p.views = p.views.saturating_add(1);
+                Ok(TextureId(h.raw()))
+            }
+            Err(e) => {
+                // Unreachable: the parent was looked up above. Undo the insert regardless.
+                let _ = self.textures.remove(h);
+                Err(e.into())
+            }
+        }
+    }
+
+    fn create_sampler(&mut self, desc: &SamplerDesc) -> Result<SamplerId, GpuError> {
+        desc.validate()?;
+        Ok(SamplerId(self.samplers.insert(*desc)?.raw()))
+    }
+
+    fn destroy_sampler(&mut self, id: SamplerId) -> Result<(), GpuError> {
+        self.samplers.remove(Handle::from_raw(id.0))?;
+        Ok(())
+    }
+
+    fn create_depth_stencil_state(
+        &mut self,
+        desc: &DepthStencilDesc,
+    ) -> Result<DepthStencilStateId, GpuError> {
+        desc.validate()?;
+        Ok(DepthStencilStateId(
+            self.depth_stencil_states.insert(*desc)?.raw(),
+        ))
+    }
+
+    fn destroy_depth_stencil_state(&mut self, id: DepthStencilStateId) -> Result<(), GpuError> {
+        self.depth_stencil_states.remove(Handle::from_raw(id.0))?;
+        Ok(())
+    }
+
+    fn create_render_pipeline(
+        &mut self,
+        desc: &RenderPipelineDesc,
+    ) -> Result<RenderPipelineId, GpuError> {
+        desc.validate(&self.caps.limits)?;
+        // Formats, sample count and vertex input (`vertex_input_support`) on this device.
+        render_pipeline_support(&self.caps, &self.policy, desc)?;
+        Ok(RenderPipelineId(
+            self.pipelines.insert(desc.targets())?.raw(),
+        ))
+    }
+
+    fn destroy_render_pipeline(&mut self, id: RenderPipelineId) -> Result<(), GpuError> {
+        self.pipelines.remove(Handle::from_raw(id.0))?;
         Ok(())
     }
 
@@ -485,7 +753,7 @@ mod tests {
         AttachmentDesc, ClearColor, ColorAttachmentDesc, CpuCacheMode, DepthAttachmentDesc,
         HazardTrackingMode, LoadAction, MultisampleDepthResolveFilter,
         MultisampleStencilResolveFilter, PixelFormat, ResolveTarget, StencilAttachmentDesc,
-        StoreAction, TextureType, TextureUsage,
+        TextureType, TextureUsage,
     };
 
     fn backend() -> NullBackend {
@@ -597,13 +865,21 @@ mod tests {
         assert_eq!(b.completed(), SubmissionToken(0));
     }
 
+    fn pipeline(b: &mut NullBackend, format: PixelFormat) -> RenderPipelineId {
+        let mut p = RenderPipelineDesc::default();
+        p.color_attachments[0].pixel_format = Some(format);
+        b.create_render_pipeline(&p).unwrap()
+    }
+
     #[test]
     fn valid_triangle_submission() {
         let mut b = backend();
         let t = b.create_texture(&rt(640, 480)).unwrap();
+        let p = pipeline(&mut b, PixelFormat::BGRA8Unorm);
         let s = Submission {
             commands: vec![
                 begin(&[color(t)], 640, 480),
+                GpuCommand::SetRenderPipelineState(p),
                 GpuCommand::Draw {
                     primitive: PrimitiveType::Triangle,
                     vertex_start: 0,
@@ -617,7 +893,26 @@ mod tests {
         assert_eq!(b.submit(&s), Ok(SubmissionToken(1)));
         assert_eq!(b.submit(&s), Ok(SubmissionToken(2)));
         assert_eq!(b.completed(), SubmissionToken(2));
-        assert_eq!(b.commands_executed(), 6);
+        assert_eq!(b.commands_executed(), 8);
+        // Without a pipeline the draw is an invalid command.
+        let mut no_pipe = s.clone();
+        no_pipe.commands.remove(1);
+        assert!(matches!(
+            b.submit(&no_pipe),
+            Err(GpuError::Model(ModelError::EncoderState(_)))
+        ));
+        // A pipeline for another format does not match the pass.
+        let other = pipeline(&mut b, PixelFormat::RGBA16Float);
+        let mut wrong = s.clone();
+        wrong.commands[1] = GpuCommand::SetRenderPipelineState(other);
+        assert!(matches!(
+            b.submit(&wrong),
+            Err(GpuError::Model(ModelError::InvalidValue { .. }))
+        ));
+        // Destroyed pipelines are stale.
+        b.destroy_render_pipeline(p).unwrap();
+        assert!(matches!(b.submit(&s), Err(GpuError::Handle(_))));
+        assert_eq!(b.completed(), SubmissionToken(2));
     }
 
     #[test]
@@ -836,7 +1131,202 @@ mod tests {
         let mut d = color(resolved);
         d.attachment.store = StoreAction::Unknown;
         let e = b.submit(&one(begin(&[d], 0, 0))).unwrap_err();
-        assert!(matches!(e, GpuError::Guest(_)), "{e:?}");
+        assert!(
+            matches!(e, GpuError::Model(ModelError::EncoderState(_))),
+            "{e:?}"
+        );
+        // Setting it before the end makes the pass valid.
+        let set = GpuCommand::SetStoreAction {
+            attachment: AttachmentSlot::Color(0),
+            action: StoreAction::Store,
+        };
+        let s = Submission {
+            commands: vec![begin(&[d], 0, 0), set, GpuCommand::EndRenderPass],
+        };
+        assert!(b.submit(&s).is_ok());
+    }
+
+    #[test]
+    fn texture_views_retain_their_parent() {
+        let mut b = backend();
+        let parent = b.create_texture(&rt(64, 64)).unwrap();
+        let view_desc = crate::model::TextureViewDesc {
+            pixel_format: PixelFormat::BGRA8Unorm_sRGB,
+            texture_type: TextureType::Type2D,
+            levels: crate::model::SubresourceRange::new(0, 1),
+            slices: crate::model::SubresourceRange::new(0, 1),
+            swizzle: crate::model::TextureSwizzleChannels::IDENTITY,
+        };
+        let view = b.create_texture_view(parent, &view_desc).unwrap();
+        let view2 = b.create_texture_view(view, &view_desc).unwrap();
+        assert_eq!(b.live_textures(), 3);
+        assert_eq!(
+            b.allocated_bytes(),
+            64 * 64 * 4,
+            "views share the parent's storage"
+        );
+        // Invalid views are rejected by the model.
+        let bad = crate::model::TextureViewDesc {
+            pixel_format: PixelFormat::RGBA16Float,
+            ..view_desc
+        };
+        assert!(matches!(
+            b.create_texture_view(parent, &bad),
+            Err(GpuError::Model(ModelError::IncompatibleViewFormat { .. }))
+        ));
+        b.destroy_texture(parent).unwrap();
+        assert_eq!(b.live_textures(), 3, "kept alive by its views");
+        assert_eq!(b.allocated_bytes(), 64 * 64 * 4);
+        // The destroyed parent is unusable: no new views, no passes, no second destroy.
+        assert!(matches!(
+            b.create_texture_view(parent, &view_desc),
+            Err(GpuError::Handle(_))
+        ));
+        assert!(matches!(
+            b.destroy_texture(parent),
+            Err(GpuError::Handle(_))
+        ));
+        let pass = |t| Submission {
+            commands: vec![begin(&[color(t)], 0, 0), GpuCommand::EndRenderPass],
+        };
+        assert!(matches!(b.submit(&pass(parent)), Err(GpuError::Handle(_))));
+        assert!(b.submit(&pass(view2)).is_ok(), "views stay usable");
+        b.destroy_texture(view).unwrap();
+        assert_eq!(b.live_textures(), 3, "view2 still holds view and parent");
+        b.destroy_texture(view2).unwrap();
+        assert_eq!(b.live_textures(), 0);
+        assert_eq!(b.allocated_bytes(), 0);
+    }
+
+    #[test]
+    fn binds_are_validated_at_submit() {
+        let mut b = backend();
+        let t = b.create_texture(&rt(64, 64)).unwrap();
+        let buf_id = b.create_buffer(&buf(64, StorageMode::Shared)).unwrap();
+        let sampler = b.create_sampler(&SamplerDesc::default()).unwrap();
+        let dss = b
+            .create_depth_stencil_state(&DepthStencilDesc::default())
+            .unwrap();
+        let in_pass = |cmd: GpuCommand| Submission {
+            commands: vec![begin(&[color(t)], 0, 0), cmd, GpuCommand::EndRenderPass],
+        };
+        let tex = |index, texture| GpuCommand::SetTexture {
+            stage: ShaderStage::Fragment,
+            index,
+            texture,
+        };
+        let smp = |index, sampler| GpuCommand::SetSamplerState {
+            stage: ShaderStage::Vertex,
+            index,
+            sampler,
+        };
+        let vb = |index, offset| GpuCommand::SetVertexBuffer {
+            index,
+            buffer: Some(buf_id),
+            offset,
+            attribute_stride: None,
+        };
+        for ok in [
+            tex(127, Some(t)),
+            tex(0, None),
+            smp(15, Some(sampler)),
+            vb(30, 63),
+            GpuCommand::SetDepthStencilState(Some(dss)),
+            GpuCommand::SetDepthStencilState(None),
+        ] {
+            assert!(b.submit(&in_pass(ok.clone())).is_ok(), "{ok:?}");
+            // Outside a render pass every bind is an order error.
+            let outside = Submission {
+                commands: vec![ok.clone()],
+            };
+            assert!(matches!(
+                b.submit(&outside),
+                Err(GpuError::Model(ModelError::EncoderState(_)))
+            ));
+        }
+        for bad in [tex(128, Some(t)), smp(16, None), vb(31, 0), vb(0, 64)] {
+            assert!(
+                matches!(b.submit(&in_pass(bad.clone())), Err(GpuError::Guest(_))),
+                "{bad:?}"
+            );
+        }
+        b.destroy_sampler(sampler).unwrap();
+        b.destroy_depth_stencil_state(dss).unwrap();
+        for stale in [
+            smp(0, Some(sampler)),
+            GpuCommand::SetDepthStencilState(Some(dss)),
+        ] {
+            assert!(matches!(
+                b.submit(&in_pass(stale)),
+                Err(GpuError::Handle(_))
+            ));
+        }
+        assert_eq!((b.live_samplers(), b.live_depth_stencil_states()), (0, 0));
+        // Descriptors are validated on creation as well.
+        let bad_sampler = SamplerDesc {
+            max_anisotropy: 17,
+            ..SamplerDesc::default()
+        };
+        assert!(b.create_sampler(&bad_sampler).is_err());
+    }
+
+    #[test]
+    fn pipelines_are_checked_against_the_device() {
+        use crate::model::{VertexAttributeDesc, VertexDescriptor, VertexFormat};
+        let mut p = RenderPipelineDesc::default();
+        p.color_attachments[0].pixel_format = Some(PixelFormat::BGRA8Unorm);
+        let mut v = VertexDescriptor::default();
+        v.attributes[30] = Some(VertexAttributeDesc {
+            format: VertexFormat::Float,
+            offset: 0,
+            buffer_index: 0,
+        });
+        p.vertex_descriptor = Some(v);
+        // RTX (assumed): 32 attributes. Iris Xe (assumed): 29 → the model rejects index 30
+        // against the device limits the backend validates with.
+        let mut rtx = NullBackend::new(Capabilities::rtx4050_assumed());
+        assert!(rtx.create_render_pipeline(&p).is_ok());
+        assert_eq!(rtx.live_render_pipelines(), 1);
+        assert!(backend().create_render_pipeline(&p).is_err());
+    }
+
+    #[test]
+    fn device_gaps_are_rejected_by_the_backend_too() {
+        use crate::model::TextureViewDesc;
+        let caps = Capabilities::rtx4050_assumed();
+        let astc =
+            TextureDesc::new_2d(PixelFormat::ASTC_4x4_LDR, 64, 64, TextureUsage::SHADER_READ);
+        // Without transcoding ASTC has no device support; the default implements it.
+        let mut native = NullBackend::with_policy(caps.clone(), EmulationPolicy::NATIVE_ONLY);
+        assert!(native.create_texture(&astc).unwrap_err().is_unsupported());
+        let mut b = NullBackend::new(caps);
+        assert!(b.create_texture(&astc).is_ok());
+        // sRGB storage writes have no emulation: a writable sRGB view is unsupported.
+        let parent = b
+            .create_texture(&TextureDesc::new_2d(
+                PixelFormat::RGBA8Unorm,
+                64,
+                64,
+                TextureUsage::SHADER_WRITE.union(TextureUsage::SHADER_READ),
+            ))
+            .unwrap();
+        let srgb = TextureViewDesc {
+            pixel_format: PixelFormat::RGBA8Unorm_sRGB,
+            texture_type: TextureType::Type2D,
+            levels: crate::model::SubresourceRange::new(0, 1),
+            slices: crate::model::SubresourceRange::new(0, 1),
+            swizzle: crate::model::TextureSwizzleChannels::IDENTITY,
+        };
+        assert!(
+            b.create_texture_view(parent, &srgb)
+                .unwrap_err()
+                .is_unsupported()
+        );
+        // RGB9E5Float is colour-renderable in Metal but not on the GPU [Annahme].
+        let mut p = RenderPipelineDesc::default();
+        p.color_attachments[0].pixel_format = Some(PixelFormat::RGB9E5Float);
+        assert!(b.create_render_pipeline(&p).unwrap_err().is_unsupported());
+        assert_eq!(b.live_render_pipelines(), 0);
     }
 
     #[test]

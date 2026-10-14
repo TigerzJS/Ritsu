@@ -45,7 +45,10 @@ mod command;
 mod encode;
 mod error;
 pub mod negotiate;
+mod objects;
 mod reader;
+mod records;
+mod render;
 mod reply;
 mod wire;
 
@@ -57,6 +60,16 @@ pub use encode::{ReplyEncoder, StreamEncoder};
 pub use error::ProtoError;
 pub use negotiate::{
     Features, Hello, HelloReject, Negotiated, decode_hello_stream, decode_session_stream,
+};
+pub use objects::{
+    CreateDepthStencilState, CreateRenderPipelineState, CreateSampler, CreateTextureView,
+    MAX_VERTEX_ATTRIBUTES, PipelineColorRecord, SWIZZLE_IDENTITY, StencilRecord,
+    VertexAttributeRecord, VertexLayoutRecord,
+};
+pub use records::{RecordList, WireRecord, encode_records};
+pub use render::{
+    AttachmentKind, AttachmentRecord, BeginRenderPass2, Binding, ColorAttachment2,
+    DepthAttachment2, ResolveRecord, SetStoreAction, SetVertexBuffer, StencilAttachment2,
 };
 pub use reply::{
     CapabilityBlock, CommandBufferStatus, ErrorCode, HelloAck, NO_RECORD, RecordError, Reply,

@@ -148,7 +148,13 @@
    "wp": "WP-DBT-04",
    "summary": "Differenztest-Infrastruktur: 118 047 Vektoren, T0 = qemu ohne Abweichung; Hardware-Orakel auf arm64-Runnern vorbereitet",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-GPU-24",
+   "summary": "Protokollbefehle für Views, Sampler, Pipelines, Pass2, Binds; Dreieck-Setup Ende-zu-Ende über das Protokoll grün",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 19:20"
+ "updatedAt": "2026-10-14 20:10"
 }

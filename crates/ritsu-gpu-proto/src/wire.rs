@@ -144,6 +144,9 @@ pub enum PayloadLen {
     Exact(u32),
     /// Payload must be at least this many bytes (variable tail).
     AtLeast(u32),
+    /// Payload must be exactly one of two lengths: a base layout and the base layout plus an
+    /// optional extension (e.g. `CreateTexture` with or without swizzle).
+    OneOf(u32, u32),
 }
 
 impl PayloadLen {
@@ -153,6 +156,7 @@ impl PayloadLen {
         match self {
             Self::Exact(n) => len == n,
             Self::AtLeast(n) => len >= n,
+            Self::OneOf(a, b) => len == a || len == b,
         }
     }
 }
@@ -228,6 +232,7 @@ macro_rules! opcodes {
 
             /// Converts a raw wire value; `None` for unknown values (including 0).
             #[must_use]
+            #[inline]
             pub const fn from_raw(raw: u16) -> Option<Self> {
                 match raw {
                     $( $val => Some(Self::$name), )*
@@ -237,6 +242,7 @@ macro_rules! opcodes {
 
             /// Payload length rule for this opcode.
             #[must_use]
+            #[inline]
             pub const fn payload_len(self) -> PayloadLen {
                 match self {
                     $( Self::$name => $rule, )*
@@ -252,9 +258,12 @@ macro_rules! opcodes {
 
         impl OpcodeTable for $enm {
             const MAGIC: u32 = $magic;
+            // Per-record hot path of the decoder (Q-PERF-3 instruction-count gate).
+            #[inline]
             fn from_raw_opcode(raw: u16) -> Option<Self> {
                 Self::from_raw(raw)
             }
+            #[inline]
             fn rule(self) -> PayloadLen {
                 self.payload_len()
             }
@@ -283,16 +292,55 @@ opcodes! {
     /// Blit: copy a byte range between buffers (recorded into the command buffer, hence
     /// class `Encoder` despite its `0x01xx` value).
     CopyBuffer = 0x0103 => PayloadLen::Exact(32), Encoder;
-    /// Create a texture object with a guest-chosen id.
-    CreateTexture = 0x0110 => PayloadLen::Exact(32), Resource;
-    /// Destroy a texture object.
+    /// Create a texture object with a guest-chosen id. 32 bytes, or 40 bytes with the
+    /// swizzle extension (`MTLTextureDescriptor.swizzle`).
+    CreateTexture = 0x0110 => PayloadLen::OneOf(32, 40), Resource;
+    /// Destroy a texture object (textures and texture views share one namespace).
     DestroyTexture = 0x0111 => PayloadLen::Exact(4), Resource;
-    /// Begin a render encoder (render pass with colour attachments).
+    /// Create a texture view of a texture (or of another view) with a guest-chosen id in the
+    /// texture namespace (`newTextureViewWithPixelFormat:textureType:levels:slices:swizzle:`).
+    CreateTextureView = 0x0112 => PayloadLen::Exact(32), Resource;
+    /// Create a sampler state (`MTLSamplerDescriptor`).
+    CreateSampler = 0x0120 => PayloadLen::Exact(32), Resource;
+    /// Destroy a sampler state.
+    DestroySampler = 0x0121 => PayloadLen::Exact(4), Resource;
+    /// Create a depth/stencil state (`MTLDepthStencilDescriptor`).
+    CreateDepthStencilState = 0x0130 => PayloadLen::Exact(40), Resource;
+    /// Destroy a depth/stencil state.
+    DestroyDepthStencilState = 0x0131 => PayloadLen::Exact(4), Resource;
+    /// Create a render pipeline state (`MTLRenderPipelineDescriptor`; shader functions are
+    /// placeholders until the library/function opcodes exist).
+    CreateRenderPipelineState = 0x0140 => PayloadLen::AtLeast(32), Resource;
+    /// Destroy a render pipeline state.
+    DestroyRenderPipelineState = 0x0141 => PayloadLen::Exact(4), Resource;
+    /// Begin a render encoder (compact form: dense colour attachments at level/slice 0, no
+    /// resolve, `float` clear colours). See `BeginRenderPass2` for the full descriptor.
     BeginRenderPass = 0x0200 => PayloadLen::AtLeast(16), Encoder;
     /// End the current render encoder.
     EndRenderPass = 0x0201 => PayloadLen::Exact(0), Encoder;
     /// Non-indexed draw.
     Draw = 0x0202 => PayloadLen::Exact(20), Encoder;
+    /// Begin a render encoder with the full `MTLRenderPassDescriptor`: sparse colour
+    /// attachments, depth and stencil attachments, level/slice/depth plane, resolve targets,
+    /// `double` clear values, store action options, layered rendering.
+    BeginRenderPass2 = 0x0203 => PayloadLen::AtLeast(24), Encoder;
+    /// Replace a deferred (`MTLStoreActionUnknown`) store action
+    /// (`setColorStoreAction:atIndex:`, `setDepthStoreAction:`, `setStencilStoreAction:`).
+    SetStoreAction = 0x0204 => PayloadLen::Exact(8), Encoder;
+    /// `setRenderPipelineState:`.
+    SetRenderPipelineState = 0x0210 => PayloadLen::Exact(4), Encoder;
+    /// `setDepthStencilState:` (id 0 = `nil`, the default state).
+    SetDepthStencilState = 0x0211 => PayloadLen::Exact(4), Encoder;
+    /// `setVertexBuffer:offset:atIndex:` / `…attributeStride:atIndex:`.
+    SetVertexBuffer = 0x0212 => PayloadLen::Exact(24), Encoder;
+    /// `setVertexTexture:atIndex:`.
+    SetVertexTexture = 0x0213 => PayloadLen::Exact(8), Encoder;
+    /// `setFragmentTexture:atIndex:`.
+    SetFragmentTexture = 0x0214 => PayloadLen::Exact(8), Encoder;
+    /// `setVertexSamplerState:atIndex:`.
+    SetVertexSamplerState = 0x0215 => PayloadLen::Exact(8), Encoder;
+    /// `setFragmentSamplerState:atIndex:`.
+    SetFragmentSamplerState = 0x0216 => PayloadLen::Exact(8), Encoder;
     /// Begin a compute encoder.
     BeginComputePass = 0x0300 => PayloadLen::Exact(0), Encoder;
     /// End the current compute encoder.

@@ -749,7 +749,8 @@
      "deps": "07",
      "accept": "",
      "owner": "gpu-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "Sampler-/Pipeline-Grenze: Vulkan garantiert nur 4000 Sampler → Deduplizierung nach ADR-0012 und eigene kleinere Grenze (Orchestrator-Vorgabe)."
     },
     {
      "id": "WP-GPU-14",
@@ -876,12 +877,13 @@
      "name": "WP-GPU-24",
      "title": "Protokollbefehle für Sampler, D/S-State, Views, Pipelines, Resolve, Level/Slice",
      "ms": "M4",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "GPU-02",
      "accept": "",
      "owner": "gpu-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "16 neue Opcodes (Views, Sampler, D/S, Pipelines, Pass2, Store-Action, Binds), EncoderValidator; Dreieck-Setup E2E grün; Review: 1 major + 5 behoben."
     },
     {
      "id": "WP-GPU-25",

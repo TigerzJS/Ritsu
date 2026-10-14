@@ -25,9 +25,11 @@
 //! * [`render_pass`] – `MTLRenderPassDescriptor` (attachments, resolve, clear values).
 //! * [`vertex`] – `MTLVertexDescriptor`, `MTLVertexFormat`.
 //! * [`pipeline`] – `MTLRenderPipelineDescriptor` without shader contents.
+//! * [`bind`] – render-encoder argument tables (`setVertexBuffer:`, `setFragmentTexture:`, …).
 
 use core::fmt;
 
+pub mod bind;
 pub mod depth_stencil;
 pub mod format;
 pub mod pipeline;
@@ -36,13 +38,14 @@ pub mod sampler;
 pub mod vertex;
 pub mod view;
 
+pub use bind::{MAX_BUFFER_BINDINGS, MAX_SAMPLER_BINDINGS, MAX_TEXTURE_BINDINGS, ShaderStage};
 pub use depth_stencil::{CompareFunction, DepthStencilDesc, StencilDesc, StencilOperation};
 pub use format::{
     Aspects, BlockInfo, Compression, FormatCaps, NumericType, PixelFormat, TextureBufferAccess,
     optional_pixel_format,
 };
 pub use pipeline::{
-    BlendFactor, BlendOperation, ColorWriteMask, PrimitiveTopologyClass,
+    BlendFactor, BlendOperation, ColorWriteMask, PipelineTargets, PrimitiveTopologyClass,
     RenderPipelineColorAttachmentDesc, RenderPipelineDesc,
 };
 pub use render_pass::{
@@ -278,6 +281,11 @@ pub enum ModelError {
         /// Why.
         reason: &'static str,
     },
+    /// A command is not allowed in the current encoder state (e.g. a draw or bind outside a
+    /// render encoder, nested encoders, a deferred store action never set). Reported to the
+    /// guest as an invalid command rather than an invalid argument.
+    #[error("invalid command order: {0}")]
+    EncoderState(&'static str),
     /// Valid Metal that Ritsu does not support (yet) or cannot map faithfully. Reported to
     /// the guest as "not implemented", never approximated (CLAUDE.md §3.5).
     #[error("not supported: {0}")]

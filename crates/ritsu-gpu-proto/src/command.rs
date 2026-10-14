@@ -9,7 +9,12 @@ use core::num::NonZeroU32;
 
 use crate::error::ProtoError;
 use crate::negotiate::{Features, Hello};
+use crate::objects::{
+    CreateDepthStencilState, CreateRenderPipelineState, CreateSampler, CreateTextureView,
+    SWIZZLE_IDENTITY,
+};
 use crate::reader::Dec;
+use crate::render::{BeginRenderPass2, Binding, SetStoreAction, SetVertexBuffer};
 use crate::wire::{Opcode, Record};
 
 /// Maximum number of colour attachments per render pass (Metal limit on Apple GPUs).
@@ -77,7 +82,9 @@ pub struct CopyBuffer {
     pub size: u64,
 }
 
-/// `CreateTexture` payload (32 bytes).
+/// `CreateTexture` payload: 32 bytes, or 40 bytes with the swizzle extension
+/// (`swizzle [u8; 4] | reserved u32`). The encoder emits the extension only for a non-identity
+/// swizzle, so streams without swizzles keep the original 32-byte layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CreateTexture {
     /// Guest-chosen id of the new texture.
@@ -102,7 +109,13 @@ pub struct CreateTexture {
     pub array_length: u32,
     /// Number of mip levels.
     pub mip_level_count: u32,
+    /// Raw `MTLTextureSwizzle` per output channel (red, green, blue, alpha);
+    /// [`SWIZZLE_IDENTITY`] when the 32-byte form is used.
+    pub swizzle: [u8; 4],
 }
+
+/// Length of the `CreateTexture` base layout.
+const CREATE_TEXTURE_LEN: usize = 32;
 
 /// One colour attachment of a `BeginRenderPass` record (24 bytes on the wire).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -220,8 +233,31 @@ pub enum Command<'a> {
     CreateTexture(CreateTexture),
     /// See [`Opcode::DestroyTexture`].
     DestroyTexture {
-        /// Texture to destroy.
+        /// Texture (or texture view) to destroy.
         texture_id: ObjectId,
+    },
+    /// See [`Opcode::CreateTextureView`].
+    CreateTextureView(CreateTextureView),
+    /// See [`Opcode::CreateSampler`].
+    CreateSampler(CreateSampler),
+    /// See [`Opcode::DestroySampler`].
+    DestroySampler {
+        /// Sampler state to destroy.
+        sampler_id: ObjectId,
+    },
+    /// See [`Opcode::CreateDepthStencilState`].
+    CreateDepthStencilState(CreateDepthStencilState),
+    /// See [`Opcode::DestroyDepthStencilState`].
+    DestroyDepthStencilState {
+        /// Depth/stencil state to destroy.
+        dss_id: ObjectId,
+    },
+    /// See [`Opcode::CreateRenderPipelineState`].
+    CreateRenderPipelineState(CreateRenderPipelineState<'a>),
+    /// See [`Opcode::DestroyRenderPipelineState`].
+    DestroyRenderPipelineState {
+        /// Pipeline state to destroy.
+        pipeline_id: ObjectId,
     },
     /// See [`Opcode::BeginRenderPass`].
     BeginRenderPass(BeginRenderPass),
@@ -229,6 +265,30 @@ pub enum Command<'a> {
     EndRenderPass,
     /// See [`Opcode::Draw`].
     Draw(Draw),
+    /// See [`Opcode::BeginRenderPass2`].
+    BeginRenderPass2(BeginRenderPass2<'a>),
+    /// See [`Opcode::SetStoreAction`].
+    SetStoreAction(SetStoreAction),
+    /// See [`Opcode::SetRenderPipelineState`].
+    SetRenderPipelineState {
+        /// Pipeline state.
+        pipeline_id: ObjectId,
+    },
+    /// See [`Opcode::SetDepthStencilState`].
+    SetDepthStencilState {
+        /// Depth/stencil state (`None` = `nil`, the default state).
+        dss_id: Option<ObjectId>,
+    },
+    /// See [`Opcode::SetVertexBuffer`].
+    SetVertexBuffer(SetVertexBuffer),
+    /// See [`Opcode::SetVertexTexture`].
+    SetVertexTexture(Binding),
+    /// See [`Opcode::SetFragmentTexture`].
+    SetFragmentTexture(Binding),
+    /// See [`Opcode::SetVertexSamplerState`].
+    SetVertexSamplerState(Binding),
+    /// See [`Opcode::SetFragmentSamplerState`].
+    SetFragmentSamplerState(Binding),
     /// See [`Opcode::BeginComputePass`].
     BeginComputePass,
     /// See [`Opcode::EndComputePass`].
@@ -262,9 +322,25 @@ impl<'a> Command<'a> {
             Self::CopyBuffer(_) => Opcode::CopyBuffer,
             Self::CreateTexture(_) => Opcode::CreateTexture,
             Self::DestroyTexture { .. } => Opcode::DestroyTexture,
+            Self::CreateTextureView(_) => Opcode::CreateTextureView,
+            Self::CreateSampler(_) => Opcode::CreateSampler,
+            Self::DestroySampler { .. } => Opcode::DestroySampler,
+            Self::CreateDepthStencilState(_) => Opcode::CreateDepthStencilState,
+            Self::DestroyDepthStencilState { .. } => Opcode::DestroyDepthStencilState,
+            Self::CreateRenderPipelineState(_) => Opcode::CreateRenderPipelineState,
+            Self::DestroyRenderPipelineState { .. } => Opcode::DestroyRenderPipelineState,
             Self::BeginRenderPass(_) => Opcode::BeginRenderPass,
             Self::EndRenderPass => Opcode::EndRenderPass,
             Self::Draw(_) => Opcode::Draw,
+            Self::BeginRenderPass2(_) => Opcode::BeginRenderPass2,
+            Self::SetStoreAction(_) => Opcode::SetStoreAction,
+            Self::SetRenderPipelineState { .. } => Opcode::SetRenderPipelineState,
+            Self::SetDepthStencilState { .. } => Opcode::SetDepthStencilState,
+            Self::SetVertexBuffer(_) => Opcode::SetVertexBuffer,
+            Self::SetVertexTexture(_) => Opcode::SetVertexTexture,
+            Self::SetFragmentTexture(_) => Opcode::SetFragmentTexture,
+            Self::SetVertexSamplerState(_) => Opcode::SetVertexSamplerState,
+            Self::SetFragmentSamplerState(_) => Opcode::SetFragmentSamplerState,
             Self::BeginComputePass => Opcode::BeginComputePass,
             Self::EndComputePass => Opcode::EndComputePass,
             Self::Dispatch(_) => Opcode::Dispatch,
@@ -284,7 +360,19 @@ impl<'a> Command<'a> {
     /// [`ProtoError::InvalidField`] or [`ProtoError::ReservedNonZero`] for wire-invalid payloads.
     pub fn decode(record: &Record<'a>) -> Result<Self, ProtoError> {
         let mut d = Dec::new(record.payload, record.offset);
-        let cmd = match record.opcode {
+        // Decoded straight into the result (no extra move of the ~200-byte `Command` on the
+        // per-record hot path; Q-PERF-3 instruction-count gate).
+        let result = Self::decode_fields(record, &mut d);
+        // Exact-length opcodes are fully consumed by construction; this guards against a
+        // mismatch between `payload_len` rules and the field lists.
+        if result.is_ok() {
+            d.finish()?;
+        }
+        result
+    }
+
+    fn decode_fields(record: &Record<'a>, d: &mut Dec<'a>) -> Result<Self, ProtoError> {
+        Ok(match record.opcode {
             Opcode::Nop => {
                 d.cur.rest();
                 Self::Nop
@@ -350,7 +438,7 @@ impl<'a> Command<'a> {
                 let storage_mode = d.u8("storage_mode")?;
                 let sample_count = d.u8("sample_count")?;
                 d.reserved(1)?;
-                Self::CreateTexture(CreateTexture {
+                let mut t = CreateTexture {
                     texture_id,
                     pixel_format,
                     usage,
@@ -362,12 +450,54 @@ impl<'a> Command<'a> {
                     depth: d.u32("depth")?,
                     array_length: d.u32("array_length")?,
                     mip_level_count: d.u32("mip_level_count")?,
-                })
+                    swizzle: SWIZZLE_IDENTITY,
+                };
+                // Swizzle extension (the length rule allows exactly 32 or 40 bytes).
+                if record.payload.len() > CREATE_TEXTURE_LEN {
+                    t.swizzle = [
+                        d.u8("swizzle")?,
+                        d.u8("swizzle")?,
+                        d.u8("swizzle")?,
+                        d.u8("swizzle")?,
+                    ];
+                    d.reserved(4)?;
+                }
+                Self::CreateTexture(t)
             }
             Opcode::DestroyTexture => Self::DestroyTexture {
                 texture_id: d.id("texture_id")?,
             },
-            Opcode::BeginRenderPass => Self::BeginRenderPass(decode_render_pass(&mut d)?),
+            Opcode::CreateTextureView => Self::CreateTextureView(CreateTextureView::decode(d)?),
+            Opcode::CreateSampler => Self::CreateSampler(CreateSampler::decode(d)?),
+            Opcode::DestroySampler => Self::DestroySampler {
+                sampler_id: d.id("sampler_id")?,
+            },
+            Opcode::CreateDepthStencilState => {
+                Self::CreateDepthStencilState(CreateDepthStencilState::decode(d)?)
+            }
+            Opcode::DestroyDepthStencilState => Self::DestroyDepthStencilState {
+                dss_id: d.id("dss_id")?,
+            },
+            Opcode::CreateRenderPipelineState => {
+                Self::CreateRenderPipelineState(CreateRenderPipelineState::decode(d)?)
+            }
+            Opcode::DestroyRenderPipelineState => Self::DestroyRenderPipelineState {
+                pipeline_id: d.id("pipeline_id")?,
+            },
+            Opcode::BeginRenderPass2 => Self::BeginRenderPass2(BeginRenderPass2::decode(d)?),
+            Opcode::SetStoreAction => Self::SetStoreAction(SetStoreAction::decode(d)?),
+            Opcode::SetRenderPipelineState => Self::SetRenderPipelineState {
+                pipeline_id: d.id("pipeline_id")?,
+            },
+            Opcode::SetDepthStencilState => Self::SetDepthStencilState {
+                dss_id: d.opt_id("dss_id")?,
+            },
+            Opcode::SetVertexBuffer => Self::SetVertexBuffer(SetVertexBuffer::decode(d)?),
+            Opcode::SetVertexTexture => Self::SetVertexTexture(Binding::decode(d)?),
+            Opcode::SetFragmentTexture => Self::SetFragmentTexture(Binding::decode(d)?),
+            Opcode::SetVertexSamplerState => Self::SetVertexSamplerState(Binding::decode(d)?),
+            Opcode::SetFragmentSamplerState => Self::SetFragmentSamplerState(Binding::decode(d)?),
+            Opcode::BeginRenderPass => Self::BeginRenderPass(decode_render_pass(d)?),
             Opcode::EndRenderPass => Self::EndRenderPass,
             Opcode::Draw => {
                 let primitive_type = d.u8("primitive_type")?;
@@ -402,11 +532,7 @@ impl<'a> Command<'a> {
             Opcode::Commit => Self::Commit {
                 submission_id: d.u64("submission_id")?,
             },
-        };
-        // Exact-length opcodes are fully consumed by construction; this guards against a
-        // mismatch between `payload_len` rules and the field lists above.
-        d.finish()?;
-        Ok(cmd)
+        })
     }
 
     /// Appends the payload bytes (without record header or padding) to `out`.
@@ -454,10 +580,32 @@ impl<'a> Command<'a> {
                 ] {
                     out.extend_from_slice(&v.to_le_bytes());
                 }
+                if t.swizzle != SWIZZLE_IDENTITY {
+                    out.extend_from_slice(&t.swizzle);
+                    out.extend_from_slice(&[0; 4]);
+                }
             }
-            Self::DestroyTexture { texture_id } => {
-                out.extend_from_slice(&texture_id.get().to_le_bytes());
+            Self::DestroyTexture { texture_id: id }
+            | Self::DestroySampler { sampler_id: id }
+            | Self::DestroyDepthStencilState { dss_id: id }
+            | Self::DestroyRenderPipelineState { pipeline_id: id }
+            | Self::SetRenderPipelineState { pipeline_id: id } => {
+                out.extend_from_slice(&id.get().to_le_bytes());
             }
+            Self::SetDepthStencilState { dss_id } => {
+                out.extend_from_slice(&dss_id.map_or(0, ObjectId::get).to_le_bytes());
+            }
+            Self::CreateTextureView(v) => v.encode(out),
+            Self::CreateSampler(c) => c.encode(out),
+            Self::CreateDepthStencilState(c) => c.encode(out),
+            Self::CreateRenderPipelineState(c) => c.encode(out),
+            Self::BeginRenderPass2(rp) => rp.encode(out),
+            Self::SetStoreAction(s) => s.encode(out),
+            Self::SetVertexBuffer(b) => b.encode(out),
+            Self::SetVertexTexture(b)
+            | Self::SetFragmentTexture(b)
+            | Self::SetVertexSamplerState(b)
+            | Self::SetFragmentSamplerState(b) => b.encode(out),
             Self::BeginRenderPass(rp) => {
                 out.extend_from_slice(&rp.width.to_le_bytes());
                 out.extend_from_slice(&rp.height.to_le_bytes());

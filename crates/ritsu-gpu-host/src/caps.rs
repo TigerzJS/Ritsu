@@ -10,11 +10,13 @@
 //! Metal guarantees for a format ([`PixelFormat::metal_caps`]), [`Capabilities::formats`] says
 //! what the GPU offers natively, and [`format_support`] / [`texture_support`] compare the two
 //! (plus enabled emulations). The same split exists for vertex input
-//! ([`vertex_input_support`]) and render passes ([`render_pass_support`]).
+//! ([`vertex_input_support`]), render passes ([`render_pass_support`]) and render pipelines
+//! ([`render_pipeline_support`]).
 
 use crate::model::{
-    Compression, FormatCaps, ModelError, PixelFormat, RenderTargetLayout, ResourceLimits,
-    TextureDesc, TextureType, TextureUsage, VertexDescriptor, VertexStepFunction, VertexStride,
+    Compression, FormatCaps, ModelError, PixelFormat, RenderPipelineDesc, RenderTargetLayout,
+    ResourceLimits, TextureDesc, TextureType, TextureUsage, VertexDescriptor, VertexStepFunction,
+    VertexStride,
 };
 
 /// GPU vendor.
@@ -890,6 +892,61 @@ pub fn vertex_input_support(
     Ok(())
 }
 
+/// Checks a validated render pipeline against the device: every attachment format must be
+/// natively renderable in its role with the pipeline's blending and sample count (render
+/// targets are never emulated by transcoding), the sample count must not exceed the device
+/// limit, and the vertex descriptor must fit [`vertex_input_support`].
+///
+/// # Errors
+///
+/// [`ModelError::FormatUnsupportedOnDevice`] naming the missing capabilities,
+/// [`ModelError::Unsupported`] for limits and vertex input gaps.
+pub fn render_pipeline_support(
+    caps: &Capabilities,
+    policy: &EmulationPolicy,
+    desc: &RenderPipelineDesc,
+) -> Result<(), ModelError> {
+    if desc.raster_sample_count > caps.limits.max_sample_count {
+        return Err(ModelError::Unsupported(
+            "raster sample count above the limit of this GPU",
+        ));
+    }
+    let msaa = if desc.raster_sample_count > 1 {
+        FormatCaps::MSAA
+    } else {
+        FormatCaps::NONE
+    };
+    let check = |format: PixelFormat, needed: FormatCaps| {
+        let needed = needed.union(msaa).intersection(format.metal_caps());
+        let missing = needed.difference(format_support(caps, policy, format).native);
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(ModelError::FormatUnsupportedOnDevice { format, missing })
+        }
+    };
+    for c in &desc.color_attachments {
+        if let Some(format) = c.pixel_format {
+            let blend = if c.blending_enabled {
+                FormatCaps::BLEND
+            } else {
+                FormatCaps::NONE
+            };
+            check(format, FormatCaps::COLOR.union(blend))?;
+        }
+    }
+    if let Some(format) = desc.depth_attachment_pixel_format {
+        check(format, FormatCaps::DEPTH)?;
+    }
+    if let Some(format) = desc.stencil_attachment_pixel_format {
+        check(format, FormatCaps::STENCIL)?;
+    }
+    if let Some(v) = &desc.vertex_descriptor {
+        vertex_input_support(caps, v)?;
+    }
+    Ok(())
+}
+
 /// Checks a validated render pass against what the device can express.
 ///
 /// # Errors
@@ -1451,5 +1508,36 @@ mod tests {
         no_rebar.resizable_bar = false;
         no_rebar.host_visible_device_local_bytes = 256 * MIB;
         assert!(!no_rebar.shared_buffers_direct());
+    }
+
+    #[test]
+    fn render_pipelines_need_native_render_target_formats() {
+        use crate::model::{PixelFormat as P, RenderPipelineDesc};
+        let caps = Capabilities::rtx4050_assumed();
+        let policy = EmulationPolicy::ALL;
+        let pipe = |format, blending, samples| {
+            let mut p = RenderPipelineDesc::default();
+            p.color_attachments[0].pixel_format = Some(format);
+            p.color_attachments[0].blending_enabled = blending;
+            p.raster_sample_count = samples;
+            p
+        };
+        assert!(render_pipeline_support(&caps, &policy, &pipe(P::BGRA8Unorm, true, 4)).is_ok());
+        // RGB9E5Float is colour-renderable in Metal but only sampleable on the GPU [Annahme];
+        // transcoding never helps render targets.
+        assert!(matches!(
+            render_pipeline_support(&caps, &policy, &pipe(P::RGB9E5Float, false, 1)),
+            Err(ModelError::FormatUnsupportedOnDevice { .. })
+        ));
+        let mut depth = pipe(P::BGRA8Unorm, false, 4);
+        depth.depth_attachment_pixel_format = Some(P::Depth32Float);
+        assert!(render_pipeline_support(&caps, &policy, &depth).is_ok());
+        let mut few = caps.clone();
+        few.limits.max_sample_count = 2;
+        assert!(
+            render_pipeline_support(&few, &policy, &pipe(P::BGRA8Unorm, false, 4))
+                .unwrap_err()
+                .is_unsupported()
+        );
     }
 }

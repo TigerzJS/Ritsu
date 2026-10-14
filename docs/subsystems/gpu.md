@@ -61,14 +61,15 @@ alle [Annahme]**. WP-GPU-03 ersetzt sie durch `vulkaninfo`-Dumps unter `docs/com
 
 | Baustein | Pfad | Inhalt |
 |---|---|---|
-| Drahtformat v1 | `ritsu-gpu-proto` | `Header`, `Opcode` (`#[non_exhaustive]`, feste `u16`-Werte), Record-Format, zero-copy `RecordIter`, typisierte `Command`s, `StreamEncoder`, `decode_stream` (Fuzz-Ziel) |
+| Drahtformat v1 | `ritsu-gpu-proto` | `Header`, `Opcode` (`#[non_exhaustive]`, feste `u16`-Werte, Pflicht-Klasse), Record-Format, zero-copy `RecordIter`, typisierte `Command`s, `StreamEncoder`, `decode_stream` (Fuzz-Ziel); seit WP-GPU-24 alle Objekte des Modells: Texture-Views, Sampler, Depth/Stencil-States, Render-Pipelines, `BeginRenderPass2`, `SetStoreAction`, Binds (§9.2.1); variable Teile als zero-copy `RecordList` |
 | Aushandlung (WP-GPU-01) | `ritsu-gpu-proto::negotiate` | `Hello`, `Features` (64-Bit-Menge), `negotiate`, `decode_hello_stream`, `decode_session_stream` (Version, Feature-Gating, doppeltes HELLO) |
 | Antwortkanal (WP-GPU-01) | `ritsu-gpu-proto` (`reply`) | `ReplyOpcode`, `Reply` (`HelloAck` mit `CapabilityBlock`, `HelloReject`, `SessionReset`, `RecordError`, `CommandBufferStatus`, `EventSignaled`), `ErrorCode`, `ReplyEncoder`, `decode_reply_stream` (Fuzz-Ziel) |
 | Handles | `ritsu-gpu-host::handle` | `HandleTable<T>` mit Generationen, Stale-Erkennung, Slot-Stilllegung bei Generationsüberlauf, Kapazitätsgrenze |
 | Objektmodell (WP-GPU-02) | `ritsu-gpu-host::model` | Vollständige `MTLPixelFormat`-Tabelle (`model::format`: Block, Kompression, Numerik/sRGB, Aspekte, Metal-Fähigkeiten, Texture-Buffer-Zugriff, View-Klassen), `TextureDesc` (+ Swizzle) / `BufferDesc`, Texture-Views (`model::view`), Sampler (`model::sampler`), Depth/Stencil-State (`model::depth_stencil`), Render-Pass inkl. Resolve und Clear-Werten (`model::render_pass`), Vertex-Deskriptor (`model::vertex`), Render-Pipeline ohne Shader (`model::pipeline`), `ResourceLimits` – Details §4.0 |
 | Fähigkeiten | `ritsu-gpu-host::caps` | `Capabilities` (+ angenommene Profile RTX 4050 / Iris Xe, inkl. `FormatCapsTable`, `VertexInputCaps`), `EmulationPolicy`, `reported_feature_set(_with)` → `ReportedFeatures`; Lückenprüfung Metal ↔ GPU: `format_support`, `texture_support`, `vertex_input_support`, `render_pass_support` |
-| Backend | `ritsu-gpu-host::backend` | `trait GpuBackend`, `GpuCommand` (`BeginRenderPass` trägt `RenderPassDesc`), `Submission`, `NullBackend` (validiert Encoder-Verschachtelung, Bounds, Render-Pass über das Modell + `render_pass_support`, aufgeschobene Store-Actions, Speicherbudget) |
-| Frontend G | `ritsu-gpu-host::frontend_g` | `GuestSession`: Handshake, Gast-IDs → Backend-Handles, Fehler pro Record, „poisoned“ Command Buffer (nach `OpcodeClass`), Completion strikt in Commit-Reihenfolge (`poll_completions`, Protokollgrenze `MAX_OUTSTANDING_SUBMISSIONS`), Sitzungs-Reset, verzögertes Zerstören bis `Commit` (zählt zur Objektgrenze); `capability_block` (`ReportedFeatures` → Drahtform) |
+| Encoder-Zustand (WP-GPU-24) | `ritsu-gpu-host::encoder` | `EncoderValidator`: Reihenfolge der Encoder-Befehle (Binds/Draws nur im Render-Pass, keine Verschachtelung), Pipeline ↔ Pass beim Setzen, Topologie-Klasse und gebundene Vertex-Buffer beim Draw, `setStoreAction` nur für `Unknown` mit Neuvalidierung des Passes; derselbe Code im Frontend (Aufzeichnung) und im `NullBackend` (Submit) |
+| Backend | `ritsu-gpu-host::backend` | `trait GpuBackend` (Buffer, Texturen, Texture-Views, Sampler, Depth/Stencil-States, Render-Pipelines), `GpuCommand` (`BeginRenderPass` trägt `RenderPassDesc`, `SetStoreAction`, Binds), `Submission`, `NullBackend` (validiert jede Submission mit `EncoderValidator` gegen die Gerätegrenzen, Bounds, Handles; prüft beim Erzeugen Gerätelücken mit `texture_support`/`render_pipeline_support` unter seiner `EmulationPolicy` – Default `ALL`, weil er nichts ausführt; Views halten ihre Eltern-Textur am Leben; Speicherbudget) |
+| Frontend G | `ritsu-gpu-host::frontend_g` | `GuestSession`: Handshake, Gast-IDs → Backend-Handles (fünf Namensräume: Buffer, Texturen inkl. Views, Sampler, Depth/Stencil, Pipelines), jede Payload vollständig validiert (Modell + `guest_limits`, Gerätelücken → `Unimplemented`) bevor das Backend sie sieht, Encoder-Validierung zur Aufzeichnungszeit, Fehler pro Record, „poisoned“ Command Buffer (nach `OpcodeClass`), Completion strikt in Commit-Reihenfolge (`poll_completions`, Protokollgrenze `MAX_OUTSTANDING_SUBMISSIONS`), Sitzungs-Reset, verzögertes Zerstören bis `Commit` (zählt pro Art zur Objektgrenze); `capability_block` (`ReportedFeatures` → Drahtform) |
 
 ## 2. Begriffe
 
@@ -167,7 +168,8 @@ brauchen, protokollneutral (ADR-0005) und mit `validate()` vor jeder Backend-Nut
 | `depth_stencil` | `MTLDepthStencilDescriptor`, `MTLStencilDescriptor`, `MTLCompareFunction`, `MTLStencilOperation` | Defaults laut SDK, Masken u32 (8 Bit wirksam) |
 | `render_pass` | `MTLRenderPassDescriptor` | Farb-/Tiefen-/Stencil-Attachments, Level/Slice/Ebene, Resolve, Clear-Werte, Layered Rendering; generisch über die Textur-Referenz, Validierung per Lookup-Funktion; Ergebnis `RenderTargetLayout` (§4.8) |
 | `vertex` | `MTLVertexDescriptor`, `MTLVertexFormat`, `MTLVertexStepFunction` | §4.8 |
-| `pipeline` | `MTLRenderPipelineDescriptor` ohne Shader | §4.8 |
+| `pipeline` | `MTLRenderPipelineDescriptor` ohne Shader | §4.8; `PipelineTargets` = was ein gebundener PSO mit Pass und Draw teilen muss (Formate, Samples, Topologie, genutzte Vertex-Buffer) – klein genug pro Objekt |
+| `bind` | Argument-Tabellen des Render-Encoders | Apple7: 31 Buffer, 128 Texturen, 16 Sampler pro Stufe [öffentlich, Feature Set Tables 2026-05-21]; nicht im HELLO_ACK, also Gast-Grenze; Vulkan-Seite über bindless Heaps (§4.5), keine Gerätelücke darunter [Annahme bis WP-GPU-03/13] |
 
 **Quellen der Rohwerte** [öffentlich]: öffentliche SDK-Header (`MTLPixelFormat.h`, `MTLSampler.h`,
 `MTLDepthStencil.h`, `MTLRenderPass.h`, `MTLRenderPipeline.h`, `MTLVertexDescriptor.h`, `MTLTexture.h`) über Apples
@@ -181,8 +183,11 @@ komprimierten Volumentexturen zu BC/ASTC, Resolve-Ziel braucht `renderTarget`, C
 **Zwei Fragen, zwei Orte** [Entscheidung]: Das Modell sagt, was *Metal* erlaubt bzw. garantiert (Gast-Fehler =
 `InvalidArgument`). `caps` sagt, was *diese GPU* (plus aktivierte Emulationen) davon leisten kann; Lücken sind
 `ModelError::Unsupported`/`FormatUnsupportedOnDevice` und erreichen den Gast als `Unimplemented`. Frontend G prüft
-Texturen gegen `ReportedFeatures::guest_limits` und `caps::texture_support`; der `NullBackend` prüft Render-Pässe über
-`RenderPassDesc::validate` + `caps::render_pass_support`.
+jede Payload gegen `ReportedFeatures::guest_limits` und die Gerätelücken (`caps::texture_support` für Texturen und
+Views, `caps::render_pipeline_support` für Pipelines inkl. `vertex_input_support`, `caps::render_pass_support` für
+Pässe), bevor das Backend sie sieht; der `NullBackend` prüft beim Submit noch einmal gegen die Gerätegrenzen.
+Reihenfolgefehler im Encoder (Bind/Draw außerhalb eines Passes, Draw ohne Pipeline, offener Encoder beim Commit)
+sind `ModelError::EncoderState` → `InvalidCommand`.
 
 **Grenzen, die der Gast kennt** [Entscheidung]: Im HELLO_ACK stehen Pufferlänge, Texturgrößen, Array-Layer, Threads
 und Farb-Attachments; dort gilt `ReportedFeatures::limits` (Gerät ∩ Apple7). Sample-Anzahl, Vertex-Attribute/-Buffer
@@ -380,12 +385,12 @@ air2spirv meldet sie als Metadaten; der Host legt unveränderliche Sampler im Pi
 | `MTLRenderPassDescriptor` | `VkRenderingInfo` (dynamic rendering) |
 | `MTLLoadActionDontCare/Load/Clear` | `LOAD_OP_DONT_CARE/LOAD/CLEAR` |
 | `MTLStoreActionStore/DontCare` | `STORE_OP_STORE/DONT_CARE` |
-| `MultisampleResolve`, `StoreAndMultisampleResolve` | `resolveMode` (`AVERAGE`; Tiefe: `SAMPLE_ZERO/MIN/MAX` über `depthStencilResolve`; Stencil `Sample0` → `SAMPLE_ZERO`, `DepthResolvedSample` nur zusammen mit Tiefen-Resolve `Sample0`, sonst `Unsupported`). Modelliert in `RenderPassDesc` (WP-GPU-02): Resolve-Textur Pflicht, Quelle multisampled, Ziel single-sample, gleiches Format, Format mit Resolve-Fähigkeit, Ziel deckt die Render-Fläche ab. Kombinierte Depth/Stencil-Textur: `RenderTargetLayout` meldet verschiedene Resolve-Ziele (`ds_resolve_targets_differ`, nie ausdrückbar), Resolve nur eines Aspekts (`ds_resolve_one_aspect`, braucht `independentResolveNone`) und unterschiedliche Modi (`ds_resolve_modes_differ`, braucht `independentResolve`); `caps::render_pass_support` entscheidet. Drahtformat v1 hat noch keine Resolve-Textur → resolvierende Store-Action schlägt sichtbar fehl (Command Buffer `Error`) |
-| `MTLStoreActionUnknown` + späteres `setColorStoreAction:` | durch den Encoder-Puffer erst bei `endEncoding` übersetzt; solange es keinen Befehl zum Setzen gibt, lehnt der `NullBackend` den Pass am Encoder-Ende ab |
+| `MultisampleResolve`, `StoreAndMultisampleResolve` | `resolveMode` (`AVERAGE`; Tiefe: `SAMPLE_ZERO/MIN/MAX` über `depthStencilResolve`; Stencil `Sample0` → `SAMPLE_ZERO`, `DepthResolvedSample` nur zusammen mit Tiefen-Resolve `Sample0`, sonst `Unsupported`). Modelliert in `RenderPassDesc` (WP-GPU-02): Resolve-Textur Pflicht, Quelle multisampled, Ziel single-sample, gleiches Format, Format mit Resolve-Fähigkeit, Ziel deckt die Render-Fläche ab. Kombinierte Depth/Stencil-Textur: `RenderTargetLayout` meldet verschiedene Resolve-Ziele (`ds_resolve_targets_differ`, nie ausdrückbar), Resolve nur eines Aspekts (`ds_resolve_one_aspect`, braucht `independentResolveNone`) und unterschiedliche Modi (`ds_resolve_modes_differ`, braucht `independentResolve`); `caps::render_pass_support` entscheidet. Auf dem Draht: `BeginRenderPass2` (Resolve-Textur mit Level/Slice/Ebene pro Attachment); die Kompaktform `BeginRenderPass` hat keine Resolve-Textur → resolvierende Store-Action ist dort ein Gast-Fehler (`InvalidArgument`, Command Buffer `Error`) |
+| `MTLStoreActionUnknown` + späteres `setColorStoreAction:` / `setDepthStoreAction:` / `setStencilStoreAction:` | Drahtbefehl `SetStoreAction` (WP-GPU-24). Nur ein noch unbekannter Store-Action darf ersetzt werden, nur durch eine bekannte; der Pass wird mit dem neuen Wert vollständig neu validiert (Resolve-Textur vorhanden, Memoryless nicht gespeichert, Gerätelücken). Nie gesetzt → `EndRenderPass` scheitert (`InvalidCommand`). Durch den Encoder-Puffer erst bei `endEncoding` nach Vulkan übersetzt |
 | `storeActionOptions: CustomSamplePositions`, `MTLStoreActionCustomSampleDepthStore` | `VK_EXT_sample_locations` – bis dahin `Unsupported` |
 | Getrennte Depth- und Stencil-Texturen (Apple2-Feature) | Vulkan Dynamic Rendering verlangt **dieselbe** Image-View für Tiefe und Stencil → Emulation (kombiniertes `D32S8`-Schattenbild + Kopien) offen; bis dahin `Unsupported` (`caps::render_pass_support`) |
 | Clear-Werte | Farbe (`double`) → Float/Uint/Sint je Format (Integer: Richtung null gerundet, gesättigt, NaN → 0 [Annahme]); `clearDepth` NaN → Gast-Fehler, außerhalb [0, 1] → `Unsupported` (ohne `depth_range_unrestricted`); `clearStencil` (u32) → untere 8 Bit |
-| Render-Pipeline (ohne Shader, `model::pipeline`) | Farb-Attachments mit Blend-Faktoren/-Operationen und Write-Mask, Depth/Stencil-Formate (kombiniertes Format muss für beide gleich sein), `rasterSampleCount` (Apple7 ≤ 4), Alpha-to-Coverage/-One, Topologie-Klasse (Pflicht bei Layered Rendering), Vertex-Deskriptor. Blending nur mit Blend-fähigem Format, Dual-Source nur auf Attachment 0 ohne weitere Farb-Attachments [Annahme, konservativ wie `maxFragmentDualSrcAttachments` = 1]. Metal-4-„Unspecialized“-Werte → `Unsupported`. `check_compatible` prüft Pipeline ↔ Render-Pass (Formate je Slot, Tiefe/Stencil, Sample-Anzahl) |
+| Render-Pipeline (ohne Shader, `model::pipeline`) | Farb-Attachments mit Blend-Faktoren/-Operationen und Write-Mask, Depth/Stencil-Formate (kombiniertes Format muss für beide gleich sein), `rasterSampleCount` (Apple7 ≤ 4), Alpha-to-Coverage/-One, Topologie-Klasse (Pflicht bei Layered Rendering), Vertex-Deskriptor. Blending nur mit Blend-fähigem Format, Dual-Source nur auf Attachment 0 ohne weitere Farb-Attachments [Annahme, konservativ wie `maxFragmentDualSrcAttachments` = 1]. Metal-4-„Unspecialized“-Werte → `Unsupported`. `check_compatible` prüft Pipeline ↔ Render-Pass (Formate je Slot, Tiefe/Stencil, Sample-Anzahl) bei `setRenderPipelineState:` (dort prüft auch Metal); beim Draw: Pipeline gebunden, Primitivtyp passt zur Topologie-Klasse, jeder Vertex-Buffer des Vertex-Deskriptors gebunden (dynamischer Stride nur mit `attributeStride`). Gerät: `caps::render_pipeline_support` (Attachment-Formate nativ renderbar/blendbar/MSAA, Sample-Grenze, Vertex-Input-Lücken) |
 | Vertex-Deskriptor (`model::vertex`) | alle `MTLVertexFormat`-Werte (Größe, Komponenten, natürliche Ausrichtung, Numerik); Step-Regeln laut Apple (PerVertex: Rate 1, PerInstance: > 0, Constant: 0; PerPatch* → `Unsupported` bis Tessellation); Apple7: 1-Byte-Ausrichtung, keine Stride-Grenze, dynamischer Stride. Lücken zu Vulkan (Stride > `maxVertexInputBindingStride`, Offset > `maxVertexInputAttributeOffset`, unausgerichtete Zugriffe, Divisoren) prüft `caps::vertex_input_support` |
 | `renderTargetArrayLength`, `[[render_target_array_index]]` | `layerCount` + `shaderOutputLayer` |
 | `setVertexAmplificationCount:` | Multiview (`viewMask`) mit Einschränkungen [Offen] |
@@ -706,16 +711,74 @@ Little-Endian, jeder Record ein Vielfaches von 8 Byte. Der Header akzeptiert Ver
 `MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION` (derzeit 1..=1); die Sitzung verlangt danach genau die ausgehandelte.
 Opcodes (fest, nie wiederverwendet): `0x00xx` Steuerung (`Nop` 0x0001, `Hello` 0x0002),
 `0x01xx` Ressourcen, `0x02xx` Render-Encoder, `0x03xx` Compute-Encoder, `0x04xx` Synchronisation, `0x05xx`
-Submission. Jeder Opcode hat eine Längenregel (`Exact`/`AtLeast`). Objekt-ID 0 ist reserviert (null).
+Submission. Jeder Opcode hat eine Längenregel (`Exact`/`AtLeast`/`OneOf`). Objekt-ID 0 ist reserviert (null).
 Enum-Felder werden roh (Metal-SDK-Werte) übertragen und erst im Host-Modell validiert.
+
+Längenregeln: `Exact(n)`, `AtLeast(n)` (variabler Rest, Zählfelder im Kopf müssen den Rest exakt erklären) und
+`OneOf(a, b)` (Basis-Layout oder Basis + optionale Erweiterung, z. B. `CreateTexture` mit Swizzle). Variable Teile
+(Attachment-Listen, Vertex-Attribute/-Layouts) dekodiert `RecordList` zero-copy: Einträge fester Größe, jeder
+vollständig geprüft, indizierte Einträge streng aufsteigend und unter ihrer Grenze; ein dekodiertes `Command` bleibt
+dadurch ≤ 256 B (Test `decoded_commands_stay_small`), der Speicherbedarf wächst nie mit Gast-Zählern.
+
+#### 9.2.1 Befehle (v1, Stand WP-GPU-24)
+
+Alle IDs sind Gast-IDs (0 = reserviert; wo Metal `nil` erlaubt, bedeutet 0 `nil`). Enum-Felder tragen Metal-SDK-Rohwerte
+(validiert im Host-Modell); Protokoll-eigene Felder (Flags, Attachment-Art, Listenstruktur) prüft schon der Decoder.
+
+| Opcode | Name | Klasse | Länge | Payload (LE) |
+|---|---|---|---|---|
+| 0x0001 | `Nop` | Control | ≥ 0 | beliebig |
+| 0x0002 | `Hello` | Control | 16 | §9.3 (eingefroren) |
+| 0x0100 | `CreateBuffer` | Resource | 16 | `id u32, storage u8, cpu_cache u8, hazard u8, res u8, length u64` |
+| 0x0101 | `DestroyBuffer` | Resource | 4 | `id u32` |
+| 0x0102 | `WriteBuffer` | Resource | ≥ 16 | `id u32, res u32, offset u64, data` |
+| 0x0103 | `CopyBuffer` | Encoder | 32 | `src u32, dst u32, src_off u64, dst_off u64, size u64` |
+| 0x0110 | `CreateTexture` | Resource | 32 oder 40 | `id u32, format u16, usage u16, type u8, storage u8, samples u8, res u8, width, height, depth, array_length, mip_levels (u32)`; Erweiterung: `swizzle [u8;4] (R,G,B,A), res u32` – der Encoder sendet sie nur bei Nicht-Identität |
+| 0x0111 | `DestroyTexture` | Resource | 4 | `id u32` (Texturen und Views) |
+| 0x0112 | `CreateTextureView` | Resource | 32 | `id u32, parent u32, format u16, type u8, res u8, swizzle [u8;4], level_start, level_count, slice_start, slice_count (u32)` |
+| 0x0120 | `CreateSampler` | Resource | 32 | `id u32, min u8, mag u8, mip u8, res u8, s u8, t u8, r u8, border u8, reduction u8, compare u8, flags u8 (1 normalized, 2 lodAverage, 4 argumentBuffers), res u8, max_anisotropy u32, lod_min f32, lod_max f32, lod_bias f32` |
+| 0x0121 | `DestroySampler` | Resource | 4 | `id u32` |
+| 0x0130 | `CreateDepthStencilState` | Resource | 40 | `id u32, depth_compare u8, flags u8 (1 depthWrite, 2 front, 4 back), res u16`, je Seite 16 B `compare, sfail, dfail, pass (u8), read_mask u32, write_mask u32, res u32` (fehlende Seite = 16 Null-Bytes) |
+| 0x0131 | `DestroyDepthStencilState` | Resource | 4 | `id u32` |
+| 0x0140 | `CreateRenderPipelineState` | Resource | ≥ 32 | Kopf `id u32, vertex_fn u32, fragment_fn u32, depth_fmt u16, stencil_fmt u16, samples u8, topology u8, flags u8 (1 alphaToCoverage, 2 alphaToOne, 4 rasterization, 8 vertexDescriptor), color_count u8 (≤ 8), amplification u32, attr_count u8, layout_count u8 (≤ 31), res 6 B`; dann `color_count` × 16 B (`format u16, blend u8 (Bit 0 = blendingEnabled), write_mask u8, src_rgb u8, dst_rgb u8, rgb_op u8, src_alpha u8, dst_alpha u8, alpha_op u8, res 6 B` – genau diese Reihenfolge; Faktoren `MTLBlendFactor`, Operationen `MTLBlendOperation`; dicht ab Slot 0), `attr_count` × 16 B (`index u8, res u8, format u16, buffer_index u32, offset u64`), `layout_count` × 24 B (`index u8, step_fn u8, res 6 B, stride u64 (u64::MAX = dynamisch), step_rate u64`; fehlende Layouts = SDK-Default) |
+| 0x0141 | `DestroyRenderPipelineState` | Resource | 4 | `id u32` |
+| 0x0200 | `BeginRenderPass` | Encoder | ≥ 16 | Kompaktform: `width, height, count (u32), res u32`, `count` × 24 B (`tex u32, load u8, store u8, res u16, clear f32×4`); Farbe dicht, Level/Slice 0, keine Resolve-Textur |
+| 0x0201 | `EndRenderPass` | Encoder | 0 | – |
+| 0x0202 | `Draw` | Encoder | 20 | `primitive u8, res 3 B, vertex_start, vertex_count, instance_count, base_instance (u32)` |
+| 0x0203 | `BeginRenderPass2` | Encoder | ≥ 24 | Kopf `width, height, array_length, default_samples (u32), color_count u8, flags u8 (1 Tiefe, 2 Stencil), res 6 B`; Attachment-Kern 40 B `tex u32, load u8, store u8, extra u8, res u8, store_options u32, level u32, slice u32, depth_plane u32, resolve_tex u32 (0 = keine, dann Level/Slice/Ebene = 0), resolve_level, resolve_slice, resolve_depth_plane (u32)`; Farbe 72 B = Kern (extra = Slot, streng aufsteigend, < 8) + `clear f64×4`; Tiefe 48 B = Kern (extra = Depth-Resolve-Filter) + `clear_depth f64`; Stencil 48 B = Kern (extra = Stencil-Resolve-Filter) + `clear_stencil u32, res u32` |
+| 0x0204 | `SetStoreAction` | Encoder | 8 | `kind u8 (0 Farbe, 1 Tiefe, 2 Stencil), index u8 (Farbe < 8, sonst 0), store_action u8, res 5 B` |
+| 0x0210 | `SetRenderPipelineState` | Encoder | 4 | `id u32` |
+| 0x0211 | `SetDepthStencilState` | Encoder | 4 | `id u32` (0 = `nil`, Default-Zustand) |
+| 0x0212 | `SetVertexBuffer` | Encoder | 24 | `id u32 (0 = nil), index u32, offset u64, attribute_stride u64 (u64::MAX = statisch)` |
+| 0x0213 / 0x0214 | `SetVertexTexture` / `SetFragmentTexture` | Encoder | 8 | `id u32 (0 = nil), index u32` |
+| 0x0215 / 0x0216 | `SetVertexSamplerState` / `SetFragmentSamplerState` | Encoder | 8 | `id u32 (0 = nil), index u32` |
+| 0x0300–0x0302 | `BeginComputePass`, `EndComputePass`, `Dispatch` | Encoder | 0/0/24 | `Dispatch`: `threadgroups u32×3, threads_per_threadgroup u32×3` |
+| 0x0400 / 0x0401 | `SignalEvent` / `WaitEvent` | Sync | 16 | `id u32, res u32, value u64`; nur mit `SHARED_EVENTS` |
+| 0x0500 | `Commit` | Submission | 8 | `submission_id u64` |
+
+**Vorwärtskompatibilität der neuen Befehle** [Entscheidung]: Sie gehören zur Basis von v1 (kein Feature-Bit), weil
+v1 noch nicht ausgeliefert ist (ADR-0005 `Proposed`, Änderungen bis M4 erlaubt); alte Ströme bleiben
+**dekodierbar** (`CreateTexture` mit 32 B, `BeginRenderPass` als Kompaktform), aber nicht jede alte Befehlsfolge
+bleibt semantisch gültig: Ein `Draw` ohne vorheriges `SetRenderPipelineState` ist seit WP-GPU-24 ein Gast-Fehler
+(`InvalidCommand`, Command Buffer vergiftet). Die Fuzz-Seeds `fuzz_gpu_host_session/render_pass` (zeichnet ohne
+Pipeline) und `fuzz_gpu_proto_decode/all_opcodes` (deckt die neuen Opcodes nicht ab) bleiben gültige Eingaben,
+decken aber weniger ab; ihre Erneuerung ist Folge-WP (WP-QA-10). **Shader-Funktionen** in `CreateRenderPipelineState`
+sind Platzhalter: `vertex_fn`/`fragment_fn` sind für Gast-IDs von Funktionsobjekten reserviert. Bis WP-SC-09/12 die
+Bibliotheks-/Funktions-Opcodes (vorgesehen: `CreateLibrary`/`CreateFunction` im Bereich `0x015x`, Auflösung der IDs
+im Host, Pflicht einer Vertex-Funktion) ergänzen, akzeptiert der Host nur 0; jeder andere Wert → `Unimplemented`.
+Das Layout ändert sich dadurch nicht. Pipelines ohne Funktionen kann nur der `NullBackend` „ausführen“ (er führt nichts
+aus); ein Vulkan-Backend muss Draws mit ihnen als `Unimplemented` ablehnen, statt ohne Shader zu zeichnen.
 
 Fehler, die der Decoder erkennt (`ProtoError`): zu kurzer Header, falsche Magic, falsche Version, gesetzte
 Reserve-Bits/Flags/Padding, Record-Anzahl größer als möglich, abgeschnittener Record-Kopf/Payload, Payload zu
-groß (> 16 MiB), unbekannter Opcode, falsche Payload-Länge, ungültige Felder (ID 0, inkonsistente Attachment-Zahl),
+groß (> 16 MiB), unbekannter Opcode, falsche Payload-Länge, ungültige Felder (ID 0, inkonsistente Attachment-Zahl,
+unbekannte Flag-Bits, Listen nicht streng aufsteigend, Resolve-Subressource ohne Resolve-Textur),
 überzählige Bytes; sitzungsbezogen (§9.3): `HelloRequired`, `HelloNotAlone`, `UnexpectedHello`, `VersionMismatch`,
 `FeatureNotNegotiated`. `ProtoError::reply_code()`/`offset()`/`raw_opcode()` liefern die Felder für `SessionReset`. Kein Fall führt zu Panic oder ungeprüftem Index; Speicherbedarf wächst nur mit tatsächlich
 dekodierten Records (nicht mit der angegebenen Anzahl). Tests: alle Präfixe eines gültigen Streams, alle
-Einzelbit-Flips, 20 000 Pseudozufalls-Streams.
+Einzelbit-Flips, 20 000 Pseudozufalls-Streams; pro neuem Opcode zusätzlich jede Payload-Kürzung mit passender
+Längenangabe, jedes Einzelbit (akzeptierte Payloads müssen einen Fixpunkt `encode(decode(x))` ergeben) und die
+Feldregeln.
 
 ### 9.3 Versionierung und Feature-Aushandlung (implementiert, WP-GPU-01)
 
@@ -797,8 +860,9 @@ Alle Payloads haben feste Länge. Jeder an `execute_stream` übergebene Strom er
 
 * **Poisoned Command Buffer.** Jeder Opcode trägt eine Pflicht-Klasse (`OpcodeClass`: `Control`, `Resource`,
   `Encoder`, `Sync`, `Submission`; Spalte im Opcode-Makro, ein neuer Opcode kompiliert nicht ohne sie). Scheitert
-  ein Record der Klassen `Encoder` oder `Sync` (heute `CopyBuffer`, Render-/Compute-Encoder-Befehle,
-  `SignalEvent`/`WaitEvent`) oder einer künftigen, dem Frontend unbekannten Klasse, wird der Command Buffer
+  ein Record der Klassen `Encoder` oder `Sync` (heute `CopyBuffer`, Render-/Compute-Encoder-Befehle inkl.
+  `BeginRenderPass2`, `SetStoreAction` und aller Binds, `SignalEvent`/`WaitEvent`) oder einer künftigen, dem Frontend
+  unbekannten Klasse, wird der Command Buffer
   markiert. Ein Befehl, den das Frontend gar nicht ausführen kann, markiert ihn unabhängig von der Klasse (im
   Zweifel vergiften) –
   **auch über Stromgrenzen hinweg**. Folgende Encoder-Befehle werden bis zum `Commit` ohne weitere Meldung
@@ -806,7 +870,10 @@ Alle Payloads haben feste Länge. Jeder an `execute_stream` übergebene Strom er
   verwirft die offenen Befehle und führt verzögerte Destroys trotzdem aus. Ein Teil-Command-Buffer wird nie als
   erfolgreich ausgeführt (Review-Befund WP-M0-REV, Regressionstest
   `regression_failed_record_poisons_command_buffer_across_streams`). Ressourcenbefehle (`Create*`, `Destroy*`,
-  `WriteBuffer`) sind Gerätebefehle und vergiften keinen Command Buffer.
+  `WriteBuffer`) sind Gerätebefehle und vergiften keinen Command Buffer. Seit WP-GPU-24 prüft das Frontend die
+  Encoder-Reihenfolge schon bei der Aufzeichnung (`EncoderValidator`): ein Bind oder Draw außerhalb eines Passes ist
+  ein `RecordError` `InvalidCommand` genau dieses Records (Test `bind_outside_a_render_pass_poisons`); nur ein beim
+  `Commit` noch offener Encoder fällt erst dort auf (Status `Error(InvalidCommand)`).
 * **Completion.** Erfolgreich eingereichte Command Buffer melden `Completed`, sobald die Backend-Timeline sie
   erreicht (`GuestSession::poll_completions`, später vom Completion-Thread angestoßen, §8.1); fehlgeschlagene
   warten in derselben Warteschlange. Die Status kommen damit **ausnahmslos** in Commit-Reihenfolge.
@@ -817,19 +884,26 @@ Alle Payloads haben feste Länge. Jeder an `execute_stream` übergebene Strom er
   wie ein echter Treiber vorher. So kann die Status-Warteschlange nie überlaufen und die Reihenfolge bleibt erhalten.
 * **Grenzen.** Höchstens `MAX_ERRORS_PER_STREAM` (64) `RecordError`s pro Strom, danach ein `TooManyErrors`;
   höchstens `MAX_PENDING_COMMANDS` aufgezeichnete Befehle (darüber `LimitExceeded`, vergiftet den Command
-  Buffer); höchstens `MAX_OBJECTS_PER_KIND` Objekte pro Art, gezählt werden lebende **und** auf verzögertes
-  Zerstören wartende Objekte (darüber `LimitExceeded`). Die Antwortmenge pro Strom ist durch die Stromgröße
+  Buffer); höchstens `MAX_OBJECTS_PER_KIND` Objekte pro Art (Buffer, Texturen inkl. Views, Sampler,
+  Depth/Stencil-States, Render-Pipelines), gezählt werden lebende **und** auf verzögertes Zerstören wartende Objekte
+  (darüber `LimitExceeded`). Bei Texturen zählen zusätzlich Eltern-Texturen, deren Gast-Name zerstört ist, die
+  aber Views noch am Leben halten (Metal: eine View hält ihre Eltern-Textur); das Frontend spiegelt dazu
+  View → Eltern und gibt die Kette frei, sobald die letzte View fällt (Regressionstest
+  `regression_view_chain_with_one_name_is_bounded`). Ein volles Handle-Table im Backend
+  (`HandleError::Full`) erreicht den Gast ebenfalls als `LimitExceeded`. Pipelines hält das Frontend nur als `PipelineTargets` (wenige Dutzend Byte statt ≈ 1,7 KiB), damit die Grenze auch
+  den Host-Speicher begrenzt. Die Antwortmenge pro Strom ist durch die Stromgröße
   beschränkt, nie durch eine Gast-Zahl.
 * Fuzz-Ziel für die Gegenseite: `decode_reply_stream` (Referenzdecoder für den Gast-Treiber).
 
 ### 9.7 Noch fehlende Befehlsklassen (Folge-WPs)
 
-Bibliotheken/Funktionen, Render-/Compute-Pipelines, Sampler, Depth/Stencil-States, Texture-Views und Swizzle,
-Argument-Buffer, Heaps, Fences/Events (derzeit `Unimplemented`), Depth/Stencil-Attachments, Resolve-Texturen,
-Level/Slice von Attachments, `setColorStoreAction:`, indizierte/indirekte Draws, Blit-Texturbefehle, Queries/Zähler,
-IOSurfaces, Anzeige. Das Objektmodell (WP-GPU-02) beschreibt Sampler, Depth/Stencil, Views, Render-Pass mit Resolve,
-Vertex-Deskriptor und Pipeline bereits vollständig; es fehlen nur die Drahtbefehle dafür (Folge-WP, zusammen mit
-WP-GPU-07).
+Seit WP-GPU-24 ist alles, was das Objektmodell (WP-GPU-02) validiert, auf dem Draht ausdrückbar (§9.2.1). Es fehlen:
+Bibliotheken/Funktionen (WP-SC-09/12, Platzhalter in `CreateRenderPipelineState`), Compute-Pipelines, Argument-Buffer,
+Heaps, Fences/Events (derzeit `Unimplemented`), `setFragmentBuffer:`/`setVertexBytes:` und weiterer dynamischer
+Zustand (Viewport, Scissor, Cull, Winding, Depth-Bias, Stencil-Referenz, Blend-Farbe), `setColorStoreActionOptions:`,
+indizierte/indirekte Draws, Blit-Texturbefehle, Queries/Zähler, IOSurfaces, Anzeige. Erst beim Draw prüfbar und noch
+offen: Sampler-Textur-Paarungen (4:2:2 braucht `clampToEdge`, `A1BGR5Unorm`/`ABGR4Unorm` nicht mit `opaqueBlack`,
+Vergleichs-Sampler mit Pixelkoordinaten) – braucht die Shader-Reflexion aus WP-SC-09/12.
 
 ## 10. Frontend P: Apples Paravirtual-GPU
 

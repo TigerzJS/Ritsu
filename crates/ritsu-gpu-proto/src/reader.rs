@@ -58,11 +58,28 @@ impl<'a> Cursor<'a> {
         self.take().map(f32::from_le_bytes)
     }
 
+    pub(crate) fn f64(&mut self) -> Option<f64> {
+        self.take().map(f64::from_le_bytes)
+    }
+
+    /// Returns the next `n` bytes, or `None` if fewer remain (nothing is consumed then).
+    pub(crate) fn bytes(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        let v = self.bytes.get(self.pos..end)?;
+        self.pos = end;
+        Some(v)
+    }
+
     /// Returns all remaining bytes.
     pub(crate) fn rest(&mut self) -> &'a [u8] {
         let rest = self.bytes.get(self.pos..).unwrap_or(&[]);
         self.pos = self.bytes.len();
         rest
+    }
+
+    /// Number of bytes not yet consumed.
+    pub(crate) fn rest_len(&self) -> usize {
+        self.bytes.len().saturating_sub(self.pos)
     }
 
     /// Current position within the payload.
@@ -77,14 +94,26 @@ pub(crate) struct Dec<'a> {
     pub(crate) cur: Cursor<'a>,
     /// Offset of the record header within the stream.
     pub(crate) offset: usize,
+    /// Position of `cur`'s first byte within the record payload (non-zero for sub-decoders
+    /// over a part of the payload), so reserved-byte offsets stay stream-relative.
+    base: usize,
 }
 
 impl<'a> Dec<'a> {
     pub(crate) fn new(payload: &'a [u8], offset: usize) -> Self {
+        Self::with_base(payload, offset, 0)
+    }
+    /// Decoder over a part of a payload that starts `base` bytes into the payload.
+    pub(crate) fn with_base(bytes: &'a [u8], offset: usize, base: usize) -> Self {
         Self {
-            cur: Cursor::new(payload),
+            cur: Cursor::new(bytes),
             offset,
+            base,
         }
+    }
+    /// Position of the next byte within the record payload.
+    pub(crate) fn payload_pos(&self) -> usize {
+        self.base + self.cur.pos()
     }
     pub(crate) fn err(&self, field: &'static str) -> ProtoError {
         ProtoError::InvalidField {
@@ -107,6 +136,21 @@ impl<'a> Dec<'a> {
     pub(crate) fn f32(&mut self, f: &'static str) -> Result<f32, ProtoError> {
         self.cur.f32().ok_or_else(|| self.err(f))
     }
+    pub(crate) fn f64(&mut self, f: &'static str) -> Result<f64, ProtoError> {
+        self.cur.f64().ok_or_else(|| self.err(f))
+    }
+    /// Reads an object id where 0 means "none" (`nil` in Metal).
+    pub(crate) fn opt_id(&mut self, f: &'static str) -> Result<Option<ObjectId>, ProtoError> {
+        Ok(ObjectId::new(self.u32(f)?))
+    }
+    /// Reads a flag byte; bits outside `known` are a wire error.
+    pub(crate) fn flags(&mut self, f: &'static str, known: u8) -> Result<u8, ProtoError> {
+        let v = self.u8(f)?;
+        if v & !known != 0 {
+            return Err(self.err(f));
+        }
+        Ok(v)
+    }
     /// Reads a non-zero object id.
     pub(crate) fn id(&mut self, f: &'static str) -> Result<ObjectId, ProtoError> {
         let raw = self.u32(f)?;
@@ -114,17 +158,18 @@ impl<'a> Dec<'a> {
     }
     /// Reads `n` reserved bytes that must be zero.
     pub(crate) fn reserved(&mut self, n: usize) -> Result<(), ProtoError> {
-        for _ in 0..n {
-            // Record offset + record header + position inside payload.
-            let at = self.offset + crate::RECORD_HEADER_LEN + self.cur.pos();
-            if self.u8("reserved")? != 0 {
-                return Err(ProtoError::ReservedNonZero { offset: at });
-            }
+        let start = self.payload_pos();
+        let bytes = self.cur.bytes(n).ok_or_else(|| self.err("reserved"))?;
+        match bytes.iter().position(|&b| b != 0) {
+            None => Ok(()),
+            // Record offset + record header + position inside the payload.
+            Some(i) => Err(ProtoError::ReservedNonZero {
+                offset: self.offset + crate::RECORD_HEADER_LEN + start + i,
+            }),
         }
-        Ok(())
     }
     /// Fails if payload bytes remain (guards against layout/length-rule mismatches).
-    pub(crate) fn finish(mut self) -> Result<(), ProtoError> {
+    pub(crate) fn finish(&mut self) -> Result<(), ProtoError> {
         if self.cur.rest().is_empty() {
             Ok(())
         } else {

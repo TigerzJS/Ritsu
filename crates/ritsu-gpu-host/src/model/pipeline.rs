@@ -11,7 +11,8 @@
 //! this descriptor (shader side: `compiler/`, tessellation: later WP).
 
 use super::{
-    FormatCaps, ModelError, PixelFormat, PrimitiveType, ResourceLimits, VertexDescriptor, raw_enum,
+    FormatCaps, ModelError, PixelFormat, PrimitiveType, ResourceLimits, VertexDescriptor,
+    VertexStride, raw_enum,
     render_pass::{MAX_COLOR_ATTACHMENTS, RenderTargetLayout},
 };
 
@@ -401,9 +402,74 @@ impl RenderPipelineDesc {
         )
     }
 
-    /// Checks that the pipeline matches the render pass it is used in: same colour formats
-    /// in every slot, same depth and stencil formats, same sample count (Metal validation
-    /// rule; Vulkan dynamic rendering needs the same).
+    /// The part of the pipeline that must match the render pass (see [`PipelineTargets`]).
+    #[must_use]
+    pub fn targets(&self) -> PipelineTargets {
+        let mut vertex_buffers = 0u32;
+        let mut dynamic_stride_buffers = 0u32;
+        if let Some(v) = &self.vertex_descriptor {
+            for (_, a) in v.used_attributes() {
+                // Buffer indices of a valid descriptor are < 31.
+                let bit = 1u32.checked_shl(a.buffer_index).unwrap_or(0);
+                vertex_buffers |= bit;
+                if matches!(
+                    v.layout_of(a).map(|l| l.stride),
+                    Some(VertexStride::Dynamic)
+                ) {
+                    dynamic_stride_buffers |= bit;
+                }
+            }
+        }
+        PipelineTargets {
+            color_formats: self.color_attachments.map(|c| c.pixel_format),
+            depth_format: self.depth_attachment_pixel_format,
+            stencil_format: self.stencil_attachment_pixel_format,
+            sample_count: self.raster_sample_count,
+            input_primitive_topology: self.input_primitive_topology,
+            vertex_buffers,
+            dynamic_stride_buffers,
+        }
+    }
+
+    /// Checks that the pipeline matches the render pass it is used in (see
+    /// [`PipelineTargets::check_compatible`]).
+    ///
+    /// # Errors
+    ///
+    /// [`ModelError::InvalidValue`] naming the mismatch.
+    pub fn check_compatible(&self, pass: &RenderTargetLayout) -> Result<(), ModelError> {
+        self.targets().check_compatible(pass)
+    }
+}
+
+/// What a bound render pipeline must agree on with the render pass and the draws: attachment
+/// formats, sample count and topology class. Small enough to keep per pipeline object (the full
+/// [`RenderPipelineDesc`] with its vertex descriptor is about 1.7 KiB).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PipelineTargets {
+    /// Pixel format per colour slot.
+    pub color_formats: [Option<PixelFormat>; MAX_COLOR_ATTACHMENTS],
+    /// Depth attachment format.
+    pub depth_format: Option<PixelFormat>,
+    /// Stencil attachment format.
+    pub stencil_format: Option<PixelFormat>,
+    /// `rasterSampleCount`.
+    pub sample_count: u32,
+    /// `inputPrimitiveTopology`.
+    pub input_primitive_topology: PrimitiveTopologyClass,
+    /// Bit `i` set: the vertex descriptor fetches from vertex buffer `i`, which must be bound
+    /// at draw time.
+    pub vertex_buffers: u32,
+    /// Bit `i` set: vertex buffer `i` has a dynamic stride and must be bound with an explicit
+    /// `attributeStride`.
+    pub dynamic_stride_buffers: u32,
+}
+
+impl PipelineTargets {
+    /// Checks that the pipeline matches the render pass it is set in: same colour formats in
+    /// every slot, same depth and stencil formats, same sample count (Metal validates this in
+    /// `setRenderPipelineState:`; Vulkan dynamic rendering needs the same), and a topology
+    /// class for layered rendering.
     ///
     /// # Errors
     ///
@@ -415,24 +481,28 @@ impl RenderPipelineDesc {
                 reason,
             })
         };
-        for (p, r) in self.color_attachments.iter().zip(pass.color_formats.iter()) {
-            if p.pixel_format != *r {
-                return mismatch("colour attachment format differs from the render pass");
-            }
+        if self.color_formats != pass.color_formats {
+            return mismatch("colour attachment format differs from the render pass");
         }
-        if self.depth_attachment_pixel_format != pass.depth_format {
+        if self.depth_format != pass.depth_format {
             return mismatch("depth format differs from the render pass");
         }
-        if self.stencil_attachment_pixel_format != pass.stencil_format {
+        if self.stencil_format != pass.stencil_format {
             return mismatch("stencil format differs from the render pass");
         }
-        if self.raster_sample_count != pass.sample_count {
+        if self.sample_count != pass.sample_count {
             return mismatch("sample count differs from the render pass");
         }
         if pass.layers > 0 && self.input_primitive_topology == PrimitiveTopologyClass::Unspecified {
             return mismatch("layered rendering needs an input primitive topology");
         }
         Ok(())
+    }
+
+    /// Whether a draw with `primitive` is allowed with this pipeline.
+    #[must_use]
+    pub const fn accepts(&self, primitive: PrimitiveType) -> bool {
+        self.input_primitive_topology.accepts(primitive)
     }
 }
 

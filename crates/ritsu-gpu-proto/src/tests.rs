@@ -17,7 +17,7 @@ fn attachment(tex: u32) -> ColorAttachmentRecord {
 
 /// A stream exercising every opcode.
 fn sample_commands() -> Vec<Command<'static>> {
-    vec![
+    let mut v = vec![
         Command::Nop,
         Command::Hello(Hello {
             min_version: 1,
@@ -62,6 +62,7 @@ fn sample_commands() -> Vec<Command<'static>> {
             depth: 1,
             array_length: 1,
             mip_level_count: 1,
+            swizzle: SWIZZLE_IDENTITY,
         }),
         Command::BeginRenderPass(BeginRenderPass::new(640, 480, &[attachment(7)]).unwrap()),
         Command::Draw(Draw {
@@ -89,7 +90,9 @@ fn sample_commands() -> Vec<Command<'static>> {
         Command::Commit { submission_id: 9 },
         Command::DestroyTexture { texture_id: id(7) },
         Command::DestroyBuffer { buffer_id: id(2) },
-    ]
+    ];
+    v.extend(objects::sample_object_commands());
+    v
 }
 
 fn encode(cmds: &[Command<'_>]) -> Vec<u8> {
@@ -428,6 +431,9 @@ fn pseudo_random_garbage_never_panics() {
 
 #[path = "tests_session.rs"]
 mod session;
+
+#[path = "tests_objects.rs"]
+mod objects;
 
 #[test]
 fn proto_error_converts_to_guest_error() {
