@@ -569,24 +569,26 @@
      "name": "WP-GPU-02",
      "title": "Objektmodell vollständig (alle Pixelformate, Sampler, Resolve)",
      "ms": "M4",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "M0-GPU",
      "accept": "",
      "owner": "gpu-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "141→138 Pixelformate, 53 Vertex-Formate, Sampler, D/S, Render-Pass+Resolve, Views, Pipelines; Rohwerte gegen objc2-metal bestätigt; Review: 4 major + 4 behoben."
     },
     {
      "id": "WP-GPU-03",
      "name": "WP-GPU-03",
      "title": "Vulkan-Bring-up mit ash, lavapipe in CI, vulkaninfo G5 MF",
      "ms": "M4",
-     "status": "open",
+     "status": "blocked",
      "risk": true,
      "deps": "02",
      "accept": "",
      "owner": "gpu-engineer",
-     "weight": 2
+     "weight": 2,
+     "note": "wartet auf O-8 (neue Abhängigkeiten ash / Allocator)"
     },
     {
      "id": "WP-GPU-04",
@@ -824,6 +826,18 @@
      "status": "open",
      "risk": false,
      "deps": "08",
+     "accept": "",
+     "owner": "gpu-engineer",
+     "weight": 1
+    },
+    {
+     "id": "WP-GPU-24",
+     "name": "WP-GPU-24",
+     "title": "Protokollbefehle für Sampler, D/S-State, Views, Pipelines, Resolve, Level/Slice",
+     "ms": "M4",
+     "status": "wip",
+     "risk": false,
+     "deps": "GPU-02",
      "accept": "",
      "owner": "gpu-engineer",
      "weight": 1

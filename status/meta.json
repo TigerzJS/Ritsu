@@ -1,7 +1,7 @@
 {
  "project": "Ritsu",
  "goal": "M1 „Erster Befehl“: statisches aarch64-Linux-ELF läuft über T0, Differenztests grün",
- "goal_detail": "Durchgehende Pipeline, 4 Spuren. Laufend: CPU WP-DBT-02 · GPU WP-GPU-02 · Shader WP-SC-03 (Review) · Qualität WP-QA-04 + WP-QA-08 · Architekt WP-ARCH-01.",
+ "goal_detail": "Durchgehende Pipeline. Laufend: CPU WP-DBT-02 · GPU WP-GPU-24 · Shader WP-SC-02 · Qualität WP-DBT-04 · Architekt WP-ARCH-07.",
  "milestones": [
   {
    "id": "M0",
@@ -118,7 +118,13 @@
    "wp": "WP-ARCH-06",
    "summary": "Normative Prüfung gegen Arm DDI 0487 M.d; ADR-0010 an 3 Stellen korrigiert, ADR-0009 um ROM-Regionen ergänzt",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-GPU-02",
+   "summary": "Metal-Objektmodell vollständig und gegen SDK-Werte geprüft; Review fand 4 Fälle, in denen ungültiges Metal angenommen wurde – behoben",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 16:20"
+ "updatedAt": "2026-10-14 17:30"
 }

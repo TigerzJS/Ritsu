@@ -128,14 +128,14 @@
     {
      "id": "Texture-Views",
      "name": "Texture-Views",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
     {
      "id": "Swizzle",
      "name": "Swizzle",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
@@ -149,14 +149,14 @@
     {
      "id": "BC-Formate",
      "name": "BC-Formate",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
     {
      "id": "ASTC (Transkodierung)",
      "name": "ASTC (Transkodierung)",
-     "status": "open",
+     "status": "wip",
      "risk": true,
      "weight": 1
     },
@@ -170,7 +170,7 @@
     {
      "id": "MSAA + Resolve",
      "name": "MSAA + Resolve",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
@@ -184,14 +184,14 @@
     {
      "id": "MTLSamplerState",
      "name": "MTLSamplerState",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
     {
      "id": "Constexpr Sampler",
      "name": "Constexpr Sampler",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
@@ -271,7 +271,7 @@
     {
      "id": "MTLRenderPipelineState",
      "name": "MTLRenderPipelineState",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
@@ -285,7 +285,7 @@
     {
      "id": "Vertex-Deskriptoren",
      "name": "Vertex-Deskriptoren",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
@@ -313,14 +313,14 @@
     {
      "id": "Blending",
      "name": "Blending",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },
     {
      "id": "Depth/Stencil-State",
      "name": "Depth/Stencil-State",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "weight": 1
     },

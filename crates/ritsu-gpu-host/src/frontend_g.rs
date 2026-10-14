@@ -45,15 +45,16 @@ use ritsu_gpu_proto::{
 };
 
 use crate::backend::{
-    BufferId, ColorAttachment, GpuBackend, GpuCommand, GpuError, Submission, SubmissionToken,
-    TextureId,
+    BufferId, GpuBackend, GpuCommand, GpuError, Submission, SubmissionToken, TextureId,
 };
 use crate::caps::{
     ArgumentBuffersTier, EmulationPolicy, ReportedFeatures, Support, reported_feature_set_with,
+    texture_support,
 };
 use crate::model::{
-    BufferDesc, LoadAction, ModelError, PixelFormat, PrimitiveType, StorageMode, StoreAction,
-    TextureDesc, TextureType, TextureUsage,
+    AttachmentDesc, BufferDesc, ClearColor, ColorAttachmentDesc, LoadAction, ModelError,
+    PixelFormat, PrimitiveType, RenderPassDesc, StorageMode, StoreAction, TextureDesc,
+    TextureSwizzleChannels, TextureType, TextureUsage,
 };
 
 /// Upper bound of recorded-but-uncommitted commands per session (guards host memory).
@@ -140,6 +141,9 @@ impl FrontendError {
     pub fn code(&self) -> ErrorCode {
         match self {
             Self::Proto(p) => p.reply_code(),
+            Self::Model(m) | Self::Gpu(GpuError::Model(m)) if m.is_unsupported() => {
+                ErrorCode::Unimplemented
+            }
             Self::Model(_) | Self::Gpu(GpuError::Model(_)) => ErrorCode::InvalidArgument,
             Self::Gpu(GpuError::OutOfDeviceMemory { .. }) => ErrorCode::OutOfMemory,
             Self::Gpu(GpuError::Unimplemented(_)) | Self::Unimplemented(_) => {
@@ -333,6 +337,7 @@ pub fn capability_block(r: &ReportedFeatures) -> CapabilityBlock {
 #[derive(Debug)]
 pub struct GuestSession<B: GpuBackend> {
     backend: B,
+    policy: EmulationPolicy,
     reported: ReportedFeatures,
     host_features: Features,
     negotiated: Option<Negotiated>,
@@ -361,6 +366,7 @@ impl<B: GpuBackend> GuestSession<B> {
         let reported = reported_feature_set_with(backend.capabilities(), policy);
         Self {
             backend,
+            policy: *policy,
             reported,
             host_features: HOST_FEATURES,
             negotiated: None,
@@ -754,7 +760,13 @@ impl<B: GpuBackend> GuestSession<B> {
                     sample_count: u32::from(c.sample_count),
                     storage_mode: StorageMode::from_raw(u32::from(c.storage_mode))?,
                     usage: TextureUsage::from_raw(u32::from(c.usage))?,
+                    // Protocol v1 has no swizzle field yet.
+                    swizzle: TextureSwizzleChannels::IDENTITY,
                 };
+                // Metal rules first (guest error), then what this GPU can honour for the
+                // format with the session's emulations (unimplemented), then the backend.
+                desc.validate(&self.reported.guest_limits)?;
+                texture_support(self.backend.capabilities(), &self.policy, &desc)?;
                 let id = self.backend.create_texture(&desc)?;
                 self.textures.insert(key, id);
             }
@@ -764,20 +776,33 @@ impl<B: GpuBackend> GuestSession<B> {
                 self.destroy_or_defer(Deferred::Texture(id))?;
             }
             Command::BeginRenderPass(rp) => {
-                let mut color_attachments = Vec::with_capacity(rp.color_attachment_count());
-                for a in rp.color_attachments() {
-                    color_attachments.push(ColorAttachment {
-                        texture: self.texture(a.texture_id)?,
-                        load: LoadAction::from_raw(u32::from(a.load_action))?,
-                        store: StoreAction::from_raw(u32::from(a.store_action))?,
-                        clear_color: a.clear_color,
+                // Protocol v1 carries dense colour attachments at level/slice 0 without
+                // resolve targets; a resolving store action therefore fails validation in the
+                // backend instead of silently dropping the resolve.
+                let mut pass = Box::new(RenderPassDesc::empty());
+                pass.render_target_width = rp.width;
+                pass.render_target_height = rp.height;
+                for (slot, a) in pass
+                    .color_attachments
+                    .iter_mut()
+                    .zip(rp.color_attachments())
+                {
+                    let [red, green, blue, alpha] = a.clear_color.map(f64::from);
+                    *slot = Some(ColorAttachmentDesc {
+                        attachment: AttachmentDesc::new(
+                            self.texture(a.texture_id)?,
+                            LoadAction::from_raw(u32::from(a.load_action))?,
+                            StoreAction::from_raw(u32::from(a.store_action))?,
+                        ),
+                        clear_color: ClearColor {
+                            red,
+                            green,
+                            blue,
+                            alpha,
+                        },
                     });
                 }
-                self.record(GpuCommand::BeginRenderPass {
-                    width: rp.width,
-                    height: rp.height,
-                    color_attachments,
-                })?;
+                self.record(GpuCommand::BeginRenderPass(pass))?;
             }
             Command::EndRenderPass => self.record(GpuCommand::EndRenderPass)?,
             Command::Draw(d) => self.record(GpuCommand::Draw {
@@ -1774,5 +1799,136 @@ mod tests {
         ]));
         assert!(matches!(wire(&out)[..], [Reply::HelloAck(_)]));
         assert_eq!(out.records_executed, 3);
+    }
+
+    // ---- object model (WP-GPU-02) -------------------------------------------------------
+
+    fn create_tex(id: u32, format: PixelFormat, usage: TextureUsage, w: u32) -> Command<'static> {
+        Command::CreateTexture(CreateTexture {
+            texture_id: oid(id),
+            pixel_format: format.raw() as u16,
+            usage: usage.bits() as u16,
+            texture_type: TextureType::Type2D.raw() as u8,
+            storage_mode: StorageMode::Private.raw() as u8,
+            sample_count: 1,
+            width: w,
+            height: 64,
+            depth: 1,
+            array_length: 1,
+            mip_level_count: 1,
+        })
+    }
+
+    #[test]
+    fn formats_without_gpu_support_are_unimplemented_not_misrendered() {
+        let astc = create_tex(1, PixelFormat::ASTC_4x4_LDR, TextureUsage::SHADER_READ, 64);
+        // Native only: no ASTC hardware → not implemented, nothing created.
+        let mut s = session();
+        let out = s.execute_stream(&stream(&[astc]));
+        let errs = record_errors(&out);
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0].code, ErrorCode::Unimplemented);
+        assert_eq!(s.backend().live_textures(), 0);
+        // With transcoding enabled the texture exists.
+        let mut s = GuestSession::with_policy(
+            NullBackend::new(Capabilities::rtx4050_assumed()),
+            &EmulationPolicy::ALL,
+        );
+        s.execute_stream(&hello(1, 1, Features::empty()));
+        let out = s.execute_stream(&stream(&[astc]));
+        assert!(record_errors(&out).is_empty(), "{:?}", out.replies);
+        assert_eq!(s.backend().live_textures(), 1);
+        // sRGB storage writes have no emulation yet: unimplemented even with ALL.
+        let srgb_write = create_tex(
+            2,
+            PixelFormat::RGBA8Unorm_sRGB,
+            TextureUsage::SHADER_WRITE,
+            64,
+        );
+        let out = s.execute_stream(&stream(&[srgb_write]));
+        assert_eq!(record_errors(&out)[0].code, ErrorCode::Unimplemented);
+        // Invalid Metal stays an invalid argument (compressed render target).
+        let bad = create_tex(3, PixelFormat::BC1_RGBA, TextureUsage::RENDER_TARGET, 64);
+        let out = s.execute_stream(&stream(&[bad]));
+        assert_eq!(record_errors(&out)[0].code, ErrorCode::InvalidArgument);
+    }
+
+    #[test]
+    fn textures_are_checked_against_reported_limits() {
+        // The RTX allows 32768-wide textures, Apple7 (and thus the guest) only 16384.
+        let mut s = session();
+        let out = s.execute_stream(&stream(&[create_tex(
+            1,
+            PixelFormat::RGBA8Unorm,
+            TextureUsage::SHADER_READ,
+            16385,
+        )]));
+        assert_eq!(record_errors(&out)[0].code, ErrorCode::InvalidArgument);
+        let out = s.execute_stream(&stream(&[create_tex(
+            1,
+            PixelFormat::RGBA8Unorm,
+            TextureUsage::SHADER_READ,
+            16384,
+        )]));
+        assert!(record_errors(&out).is_empty());
+    }
+
+    #[test]
+    fn resolve_store_action_without_resolve_target_poisons_the_command_buffer() {
+        let mut s = session();
+        let resolve_pass = Command::BeginRenderPass(
+            BeginRenderPass::new(
+                640,
+                480,
+                &[ColorAttachmentRecord {
+                    texture_id: oid(1),
+                    load_action: 2,
+                    store_action: StoreAction::MultisampleResolve.raw() as u8,
+                    clear_color: [0.0; 4],
+                }],
+            )
+            .unwrap(),
+        );
+        let out = s.execute_stream(&stream(&[
+            create_rt(1),
+            resolve_pass,
+            draw(3),
+            Command::EndRenderPass,
+            Command::Commit { submission_id: 5 },
+        ]));
+        // Recording succeeds; the backend rejects the pass at commit (no resolve texture on
+        // the v1 wire), so the whole command buffer fails instead of rendering without the
+        // resolve.
+        out.reply_stream().unwrap();
+        let pending = s.poll_completions();
+        let st: Vec<_> = statuses(&out)
+            .into_iter()
+            .chain(pending.iter().filter_map(|r| match r {
+                Reply::CommandBufferStatus(s) => Some(*s),
+                _ => None,
+            }))
+            .collect();
+        assert_eq!(st.len(), 1);
+        assert!(
+            matches!(st[0].status, CommandBufferStatus::Error(_)),
+            "{st:?}"
+        );
+        // Unknown store actions are still rejected at decode-to-model time.
+        let mut bad = begin_pass(1);
+        if let Command::BeginRenderPass(rp) = &mut bad {
+            *rp = BeginRenderPass::new(
+                640,
+                480,
+                &[ColorAttachmentRecord {
+                    texture_id: oid(1),
+                    load_action: 2,
+                    store_action: 6,
+                    clear_color: [0.0; 4],
+                }],
+            )
+            .unwrap();
+        }
+        let out = s.execute_stream(&stream(&[bad]));
+        assert_eq!(record_errors(&out)[0].code, ErrorCode::InvalidArgument);
     }
 }

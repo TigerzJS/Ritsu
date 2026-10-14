@@ -65,9 +65,9 @@ alle [Annahme]**. WP-GPU-03 ersetzt sie durch `vulkaninfo`-Dumps unter `docs/com
 | Aushandlung (WP-GPU-01) | `ritsu-gpu-proto::negotiate` | `Hello`, `Features` (64-Bit-Menge), `negotiate`, `decode_hello_stream`, `decode_session_stream` (Version, Feature-Gating, doppeltes HELLO) |
 | Antwortkanal (WP-GPU-01) | `ritsu-gpu-proto` (`reply`) | `ReplyOpcode`, `Reply` (`HelloAck` mit `CapabilityBlock`, `HelloReject`, `SessionReset`, `RecordError`, `CommandBufferStatus`, `EventSignaled`), `ErrorCode`, `ReplyEncoder`, `decode_reply_stream` (Fuzz-Ziel) |
 | Handles | `ritsu-gpu-host::handle` | `HandleTable<T>` mit Generationen, Stale-Erkennung, Slot-Stilllegung bei Generationsüberlauf, Kapazitätsgrenze |
-| Objektmodell | `ritsu-gpu-host::model` | `StorageMode`, `CpuCacheMode`, `HazardTrackingMode`, `TextureType`, `TextureUsage`, `PixelFormat` (Teilmenge, Blockgrößen), `BufferDesc`/`TextureDesc` mit Validierung, `ResourceLimits` |
-| Fähigkeiten | `ritsu-gpu-host::caps` | `Capabilities` (+ angenommene Profile RTX 4050 / Iris Xe), `EmulationPolicy`, `reported_feature_set(_with)` → `ReportedFeatures` |
-| Backend | `ritsu-gpu-host::backend` | `trait GpuBackend`, `GpuCommand`, `Submission`, `NullBackend` (validiert Encoder-Verschachtelung, Bounds, Attachments, Speicherbudget) |
+| Objektmodell (WP-GPU-02) | `ritsu-gpu-host::model` | Vollständige `MTLPixelFormat`-Tabelle (`model::format`: Block, Kompression, Numerik/sRGB, Aspekte, Metal-Fähigkeiten, Texture-Buffer-Zugriff, View-Klassen), `TextureDesc` (+ Swizzle) / `BufferDesc`, Texture-Views (`model::view`), Sampler (`model::sampler`), Depth/Stencil-State (`model::depth_stencil`), Render-Pass inkl. Resolve und Clear-Werten (`model::render_pass`), Vertex-Deskriptor (`model::vertex`), Render-Pipeline ohne Shader (`model::pipeline`), `ResourceLimits` – Details §4.0 |
+| Fähigkeiten | `ritsu-gpu-host::caps` | `Capabilities` (+ angenommene Profile RTX 4050 / Iris Xe, inkl. `FormatCapsTable`, `VertexInputCaps`), `EmulationPolicy`, `reported_feature_set(_with)` → `ReportedFeatures`; Lückenprüfung Metal ↔ GPU: `format_support`, `texture_support`, `vertex_input_support`, `render_pass_support` |
+| Backend | `ritsu-gpu-host::backend` | `trait GpuBackend`, `GpuCommand` (`BeginRenderPass` trägt `RenderPassDesc`), `Submission`, `NullBackend` (validiert Encoder-Verschachtelung, Bounds, Render-Pass über das Modell + `render_pass_support`, aufgeschobene Store-Actions, Speicherbudget) |
 | Frontend G | `ritsu-gpu-host::frontend_g` | `GuestSession`: Handshake, Gast-IDs → Backend-Handles, Fehler pro Record, „poisoned“ Command Buffer (nach `OpcodeClass`), Completion strikt in Commit-Reihenfolge (`poll_completions`, Protokollgrenze `MAX_OUTSTANDING_SUBMISSIONS`), Sitzungs-Reset, verzögertes Zerstören bis `Commit` (zählt zur Objektgrenze); `capability_block` (`ReportedFeatures` → Drahtform) |
 
 ## 2. Begriffe
@@ -143,10 +143,53 @@ WP-GPU-03 (ja / nein / ?).
 | `VK_EXT_texture_compression_astc_hdr` / ASTC-LDR-Feature | ASTC | nein | nein | nein | Transkodierung (§4.3) |
 | `VK_EXT_depth_clip_control`, `VK_EXT_depth_bias_control`, `VK_EXT_provoking_vertex`, `VK_EXT_line_rasterization` | Metal-Rasterisierungsdetails | ja | ja | ja | Abweichung dokumentieren, Testszene |
 | `VK_KHR_maintenance5`/`6` | `VK_FORMAT_A8_UNORM_KHR`, Bindings ohne Pipeline-Layout-Pein | ja | ja | ja | Swizzle-Tricks |
+| `VK_EXT_legacy_vertex_attributes` (+ `VK_EXT_vertex_input_dynamic_state`) | Vertex-Attribute mit 1-Byte-Ausrichtung von Offset/Stride (Apple7-Regel; Core-Vulkan verlangt Komponentenausrichtung) | ja | ? | ja | Vertex-Pulling im übersetzten Shader; bis dahin `Unsupported` (`caps::vertex_input_support`, `VertexInputCaps::unaligned_fetch`) |
+| `VK_KHR_vertex_attribute_divisor` (Core 1.4) inkl. `vertexAttributeInstanceRateZeroDivisor` | `MTLVertexStepFunctionPerInstance` mit `stepRate` > 1, `MTLVertexStepFunctionConstant` | ja | ja | ja | Vertex-Pulling; bis dahin `Unsupported` (`VertexInputCaps::instance_divisor/zero_divisor`) |
+| `depthStencilResolve` (Core 1.2), `VK_RESOLVE_MODE_MIN/MAX`, `independentResolveNone`, `independentResolve` | `MTLMultisampleDepthResolveFilterMin/Max`; Resolve nur eines Aspekts bzw. mit unterschiedlichen Modi bei kombinierter Depth/Stencil-Textur | ja | ? | ja | Min/Max → `Unsupported` (`Capabilities::depth_resolve_min_max`); ein Aspekt bzw. unterschiedliche Modi ohne `independent_resolve_none`/`independent_resolve` → `Unsupported`; verschiedene Resolve-Ziele für Tiefe und Stencil einer Textur sind nie ausdrückbar (`VUID-VkRenderingInfo-pDepthAttachment-06086`) → `Unsupported` |
+| `VK_EXT_depth_range_unrestricted` | `clearDepth` außerhalb [0, 1] auf `Depth32Float` | ? | ? | ? | `Unsupported` (Modell lehnt ab) |
+| `dualSrcBlend` (Core-Feature, `maxFragmentDualSrcAttachments` = 1) | `MTLBlendFactorSource1*` | ja | ja | ja | – (Modell erlaubt Dual-Source nur auf Attachment 0 ohne weitere Farb-Attachments) |
 
 ## 4. Abbildung Metal → Vulkan
 
 Die Tabellen beschreiben das **Zielbild**. Was im Skelett schon existiert, steht in §1.1.
+
+### 4.0 Objektmodell (WP-GPU-02)
+
+`ritsu_gpu_host::model` beschreibt jedes Metal-Objekt, das M4 („erstes Dreieck“) und M5 (WindowServer-Formate)
+brauchen, protokollneutral (ADR-0005) und mit `validate()` vor jeder Backend-Nutzung:
+
+| Modul | Metal | Inhalt |
+|---|---|---|
+| `format` | `MTLPixelFormat` | alle Rohwerte, Block, Kompression, Numerik/sRGB, Aspekte, Metal-Fähigkeiten (Apple7), Texture-Buffer-Zugriff, View-Kompatibilität (§4.3) |
+| `mod` | `MTLTextureDescriptor`, `MTLBuffer` | `TextureDesc` (+ `swizzle`), `BufferDesc`, `ResourceLimits` (Apple7: 16384 px 2D, 2048 Layer, 8 Farb-Attachments, 4 Samples, 31 Vertex-Attribute/-Buffer) |
+| `view` | `MTLTextureSwizzleChannels`, Texture-Views | Swizzle, `TextureViewDesc` (§4.3) |
+| `sampler` | `MTLSamplerDescriptor` | §4.4 |
+| `depth_stencil` | `MTLDepthStencilDescriptor`, `MTLStencilDescriptor`, `MTLCompareFunction`, `MTLStencilOperation` | Defaults laut SDK, Masken u32 (8 Bit wirksam) |
+| `render_pass` | `MTLRenderPassDescriptor` | Farb-/Tiefen-/Stencil-Attachments, Level/Slice/Ebene, Resolve, Clear-Werte, Layered Rendering; generisch über die Textur-Referenz, Validierung per Lookup-Funktion; Ergebnis `RenderTargetLayout` (§4.8) |
+| `vertex` | `MTLVertexDescriptor`, `MTLVertexFormat`, `MTLVertexStepFunction` | §4.8 |
+| `pipeline` | `MTLRenderPipelineDescriptor` ohne Shader | §4.8 |
+
+**Quellen der Rohwerte** [öffentlich]: öffentliche SDK-Header (`MTLPixelFormat.h`, `MTLSampler.h`,
+`MTLDepthStencil.h`, `MTLRenderPass.h`, `MTLRenderPipeline.h`, `MTLVertexDescriptor.h`, `MTLTexture.h`) über Apples
+Entwicklerdokumentation, gegengeprüft mit den daraus generierten `objc2-metal`-Bindings; Regeln und Grenzwerte aus
+Apples Eigenschaftsdokumentation und den *Metal Feature Set Tables* (2026-05-21). Jede Tabelle nennt ihre Quelle im
+Modulkommentar; keine Header-Texte im Repo. Rohwerte tragen **keine** [Annahme] mehr (Review: alle Enums gegen
+`objc2-metal` 0.3.2 bestätigt; Tests `table_matches_sdk_values_exactly` für Pixel- und Vertex-Formate mit
+unabhängiger Rohwertliste). [Annahme] steht nur noch an Regeln, die Apple nicht dokumentiert (z. B. Zuordnung der
+komprimierten Volumentexturen zu BC/ASTC, Resolve-Ziel braucht `renderTarget`, Clear-Wert-Rundung).
+
+**Zwei Fragen, zwei Orte** [Entscheidung]: Das Modell sagt, was *Metal* erlaubt bzw. garantiert (Gast-Fehler =
+`InvalidArgument`). `caps` sagt, was *diese GPU* (plus aktivierte Emulationen) davon leisten kann; Lücken sind
+`ModelError::Unsupported`/`FormatUnsupportedOnDevice` und erreichen den Gast als `Unimplemented`. Frontend G prüft
+Texturen gegen `ReportedFeatures::guest_limits` und `caps::texture_support`; der `NullBackend` prüft Render-Pässe über
+`RenderPassDesc::validate` + `caps::render_pass_support`.
+
+**Grenzen, die der Gast kennt** [Entscheidung]: Im HELLO_ACK stehen Pufferlänge, Texturgrößen, Array-Layer, Threads
+und Farb-Attachments; dort gilt `ReportedFeatures::limits` (Gerät ∩ Apple7). Sample-Anzahl, Vertex-Attribute/-Buffer
+und Texture-Buffer-Breite stehen **nicht** auf dem Draht, der Gast nimmt Apple7 an (4 Samples, 31/31, 256 Mi px).
+`guest_limits` enthält deshalb für diese Felder die Apple7-Werte: Überschreitung = Gast-Fehler; liegt die
+Gerätegrenze darunter (Iris: 29 Attribute/28 Buffer [Annahme], `maxTexelBufferElements` 2^27 [Annahme]), ist das eine
+Fähigkeitslücke → `Unsupported` (`caps::vertex_input_support`, `caps::texture_support`).
 
 ### 4.1 Gerät, Queues, Command Buffer, Encoder
 
@@ -194,7 +237,32 @@ Die Tabellen beschreiben das **Zielbild**. Was im Skelett schon existiert, steht
 | Sparse-Texturen | §4.1 |
 | Lossless Compression (Apple-intern) | unsichtbar; auf Intel ggf. CCS-Kompression des Treibers |
 
-**Formatabbildung** (vollständige Tabelle in WP-GPU-05; Auszug):
+**Formatmodell (WP-GPU-02).** `model::format::PixelFormat` enthält **alle** Werte von `MTLPixelFormat` (öffentlicher
+SDK-Header, gegengeprüft mit den daraus generierten `objc2-metal`-Bindings; Test `table_matches_sdk_values_exactly`
+listet jeden Rohwert unabhängig von der Tabelle). `MTLPixelFormatUnspecialized` (263, Metal-4-Pipelines) ist bekannt,
+aber `Unsupported`. Pro Format: Block (B×H, Bytes; PVRTC mit Mindestgröße 2×2 Blöcke), Kompressionsfamilie (BC,
+ETC2/EAC, ASTC LDR, ASTC HDR, PVRTC), Numerik (Unorm/Snorm/Uint/Sint/Float/Extended Range), sRGB, Aspekte, Zugriff als
+Texture-Buffer und die **von Metal garantierten Fähigkeiten** (`metal_caps`: Sample, Filter, Write, Color, Blend,
+MSAA, Resolve, Sparse, Atomic, Depth, Stencil) aus der Spalte **Apple7** der *Metal Feature Set Tables* (Ausgabe
+2026-05-21; laut Fußnote 1 die Untergrenze aller Metal-3/4-Geräte) [öffentlich]. `Depth24Unorm_Stencil8` und
+`X24_Stencil8` stehen in keiner Apple-Spalte → nicht erzeugbar; `X32_Stencil8` nur als View.
+
+**Format ≠ GPU** [Entscheidung]: Was Metal verlangt, steht am Format; was die GPU kann, steht in
+`Capabilities::formats` (`FormatCapsTable`, für die Profile `rtx4050_assumed`/`iris_xe_assumed` **[Annahme]** bis
+WP-GPU-03 die Werte per `vkGetPhysicalDeviceFormatProperties` einsetzt). `caps::format_support` vergleicht beides
+plus aktivierte Emulationen (Transkodierung), `caps::texture_support` prüft jede Textur gegen die Fähigkeiten, die
+ihre Nutzung braucht. Fehlt etwas, wird die Textur mit `Unimplemented` abgelehnt – nie still falsch.
+Angenommene Lücken auf **beiden** GPUs (müssen vor M5 emuliert oder bestätigt werden):
+
+| Format | Metal (Apple7) | GPU (angenommen) | Folge / nötige Emulation |
+|---|---|---|---|
+| alle `*_sRGB` | Write | kein Storage auf sRGB | UNORM-View + sRGB-Kodierung im Shader (shader-compiler) |
+| `RGB9E5Float` | Color, Blend, MSAA, Resolve, Write | nur Sample/Filter | Render-Target über `R32Uint` + Packen; Blending nicht emulierbar → offen |
+| `R8Unorm_sRGB`, `RG8Unorm_sRGB`, `A8Unorm`, `A1BGR5Unorm`, `ABGR4Unorm` | Color (… ) | nur Sample/Filter | Rendern in UNORM/R8 + Umrechnung im Shader |
+| `BGRA10_XR(_sRGB)`, `BGR10_XR(_sRGB)` | alles | keine Entsprechung | `RGBA16Float` intern (G-6) – **WindowServer-relevant (M5)** |
+| ASTC (LDR/HDR), ETC2/EAC, PVRTC | Sample, Filter | nichts | Transkodierung (`EmulationPolicy::astc_transcode`, `etc_eac_transcode`, `pvrtc_transcode`) |
+
+**Formatabbildung** Metal → Vulkan (vollständige Tabelle in WP-GPU-05; Auszug):
 
 | Metal | Vulkan | Bemerkung |
 |---|---|---|
@@ -220,14 +288,49 @@ Ohne aktivierte Transkodierung meldet Ritsu ASTC nicht (`ReportedFeatures::astc`
 Weitere Regeln: Vulkan verbietet Storage-Images mit sRGB-Formaten; Metal-Shader-Writes auf sRGB → UNORM-View +
 Kodierung im übersetzten Shader. Komprimierte Formate sind nie Render-Targets (im Modell bereits geprüft).
 
+**Texturen im Modell:** Typ/Format-Regeln aus `metal_caps` (Render-Target nur mit Color/Depth/Stencil, Shader-Write
+nur mit Write, Atomics nur `R32Uint`/`R32Sint` auf Apple7, MSAA-Typen nur mit MSAA, Texture-Buffer nur mit Formaten
+aus Apples Texture-Buffer-Tabelle), Sample-Anzahl ≤ `ResourceLimits::max_sample_count` (Apple7: 4). Texturtypen pro
+Kompressionsfamilie [öffentlich, Apple-Formatseiten]: ETC2/EAC und PVRTC nur 2D, 2DArray, Cube; BC und ASTC zusätzlich
+CubeArray (Apple4) und 3D („Compressed volume texture formats“, Apple3; die Tabelle nennt keine Formate, die Zuordnung zu
+BC/ASTC ist [Annahme], weil ETC2/EAC/PVRTC durch ihre eigenen Seiten ausgeschlossen sind). 4:2:2 (`GBGR422`,
+`BGRG422`) [öffentlich, Apple-Formatseiten]: nur 2D ohne Mips, Breite gerade (sonst Gast-Fehler); beim Sampling
+verlangt Apple `clampToEdge` (Sampler-seitig, erst bei der Bindung prüfbar). Texture-Buffer: Breite ≤
+`max_texture_buffer_width` (Apple7: 256 Mi px) und ≤ `maxBufferLength` / Pixelgröße (nicht die 1D-Grenze). Größen
+werden mit geprüfter Arithmetik berechnet; `Depth32Float_Stencil8` wird mit 8 B/px gerechnet (Apple: „some devices
+allocate 64 bits per pixel“).
+
+**Texture-Views** (`model::view::TextureViewDesc`): Formate kompatibel, wenn gleiche Bitbreite (unkomprimierte
+Farbformate), sRGB↔linear oder Depth/Stencil ↔ Stencil-View; `PixelFormatView`-Usage nötig, sobald sich Anzahl, Größe
+oder Reihenfolge der Komponenten ändern (Ausnahmen laut Apple: sRGB↔linear, RGBA8↔BGRA8 mit sRGB-Wechsel). Typ-Casts nach
+Apples Tabelle (2D→2D/2DArray; 2DArray/Cube/CubeArray untereinander; 1D, 3D nur auf sich selbst; übrige Typen nur auf
+sich selbst [Entscheidung]). Level-/Slice-Bereiche mit geprüfter Arithmetik; Cube = 6 Slices, Cube-Array = n × 6.
+View-Swizzle wird mit dem Swizzle der Textur **kombiniert** [öffentlich, Apple-Doku zu
+`makeTextureView(…swizzle:)`]: `final[c] = parent[view[c]]`, Konstanten bleiben Konstanten (Apples Beispiel
+`[R,G,A,B]` auf `[R,1,1,G]` → `[R,1,G,1]` ist Testfall). Vulkan-Hinweis: Attachment- und Storage-Views brauchen
+Identitäts-Swizzle → Backend hält eine zweite, unswizzelte View.
+
 ### 4.4 Sampler
+
+Modell: `model::sampler::SamplerDesc` mit allen Feldern des Deskriptors und `validate()` [öffentlich: Apple-Doku der
+Eigenschaften, Feature-Tabellen]: `maxAnisotropy` 1…16, LOD-Clamps ohne NaN und `min ≤ max`, nicht normalisierte
+Koordinaten nur unter Apples Bedingungen (clampToEdge/clampToZero für s/t, notMipmapped, min = mag, Anisotropie 1 –
+sonst „undefiniert“ in Metal und verboten in Vulkan → Gast-Fehler). Nicht normalisierte Koordinaten mit
+`compareFunction` ≠ `never` verbietet Apple nicht, Vulkan schon (`VUID-VkSamplerCreateInfo-unnormalizedCoordinates-01076`)
+→ `Unsupported`; `never` ist der SDK-Default und nicht von „kein Vergleich“ unterscheidbar, bleibt also erlaubt
+(`sample_compare` über einen solchen Sampler muss bei der Bindung abgelehnt werden). `reductionMode` ≠ WeightedAverage und `lodBias` ≠ 0
+sind Apple10-Features → `Unsupported`, solange Ritsu höchstens Apple7 meldet. **G-7 entschieden:** `lodAverage` ist laut
+Apple ein Performance-Hinweis, der „auf manchen GPUs ignoriert“ wird → Ritsu akzeptiert und ignoriert ihn (konform).
+Backend-Hinweise: Border-Farben brauchen Float- und Int-Varianten je nach Texturformat; ein Metal-Sampler mit
+`compareFunction` wird zu zwei `VkSampler` (mit/ohne Compare), weil Vulkan normale Samples mit Compare-Sampler nicht
+erlaubt; bei nicht normalisierten Koordinaten setzt das Backend `minLod = maxLod = 0` (äquivalent wegen notMipmapped
+und min = mag).
 
 `MTLSamplerDescriptor` → `VkSampler` (gecacht nach Deskriptor-Hash):
 Filter/Mip-Filter 1:1; `clampToEdge`/`repeat`/`mirrorRepeat`/`mirrorClampToEdge` 1:1; `clampToZero` →
 `CLAMP_TO_BORDER` + transparentes Schwarz; `clampToBorderColor` → drei Standard-Border-Farben (bei Formaten mit
 Swizzle `border_color_swizzle` bzw. Custom Border Color); `lodMin/MaxClamp`, `maxAnisotropy`, `compareFunction` 1:1;
-`normalizedCoordinates = NO` → `unnormalizedCoordinates` (gleiche Einschränkungen in beiden APIs [Annahme]);
-`lodAverage` → [Offen] G-7 (Näherung ist eine Abweichung → zunächst Gast-Fehler, wenn gesetzt).
+`normalizedCoordinates = NO` → `unnormalizedCoordinates` (Einschränkungen s. o.); `lodAverage` → ignoriert (s. o.).
 `supportArgumentBuffers` → Sampler bekommt einen Platz im globalen Sampler-Heap (§4.5). `constexpr sampler` in MSL →
 air2spirv meldet sie als Metadaten; der Host legt unveränderliche Sampler im Pipeline-Layout an.
 
@@ -277,9 +380,13 @@ air2spirv meldet sie als Metadaten; der Host legt unveränderliche Sampler im Pi
 | `MTLRenderPassDescriptor` | `VkRenderingInfo` (dynamic rendering) |
 | `MTLLoadActionDontCare/Load/Clear` | `LOAD_OP_DONT_CARE/LOAD/CLEAR` |
 | `MTLStoreActionStore/DontCare` | `STORE_OP_STORE/DONT_CARE` |
-| `MultisampleResolve`, `StoreAndMultisampleResolve` | `resolveMode` (`AVERAGE`; Tiefe/Stencil: `SAMPLE_ZERO/MIN/MAX` über `depthStencilResolve`) – im Skelett noch abgelehnt (`StoreAction` kennt nur Store/DontCare → Gast-Fehler statt Fehlrender) |
-| `MTLStoreActionUnknown` + späteres `setColorStoreAction:` | durch den Encoder-Puffer erst bei `endEncoding` übersetzt → kein Problem |
-| `storeActionOptions: CustomSamplePositions` | `VK_EXT_sample_locations` |
+| `MultisampleResolve`, `StoreAndMultisampleResolve` | `resolveMode` (`AVERAGE`; Tiefe: `SAMPLE_ZERO/MIN/MAX` über `depthStencilResolve`; Stencil `Sample0` → `SAMPLE_ZERO`, `DepthResolvedSample` nur zusammen mit Tiefen-Resolve `Sample0`, sonst `Unsupported`). Modelliert in `RenderPassDesc` (WP-GPU-02): Resolve-Textur Pflicht, Quelle multisampled, Ziel single-sample, gleiches Format, Format mit Resolve-Fähigkeit, Ziel deckt die Render-Fläche ab. Kombinierte Depth/Stencil-Textur: `RenderTargetLayout` meldet verschiedene Resolve-Ziele (`ds_resolve_targets_differ`, nie ausdrückbar), Resolve nur eines Aspekts (`ds_resolve_one_aspect`, braucht `independentResolveNone`) und unterschiedliche Modi (`ds_resolve_modes_differ`, braucht `independentResolve`); `caps::render_pass_support` entscheidet. Drahtformat v1 hat noch keine Resolve-Textur → resolvierende Store-Action schlägt sichtbar fehl (Command Buffer `Error`) |
+| `MTLStoreActionUnknown` + späteres `setColorStoreAction:` | durch den Encoder-Puffer erst bei `endEncoding` übersetzt; solange es keinen Befehl zum Setzen gibt, lehnt der `NullBackend` den Pass am Encoder-Ende ab |
+| `storeActionOptions: CustomSamplePositions`, `MTLStoreActionCustomSampleDepthStore` | `VK_EXT_sample_locations` – bis dahin `Unsupported` |
+| Getrennte Depth- und Stencil-Texturen (Apple2-Feature) | Vulkan Dynamic Rendering verlangt **dieselbe** Image-View für Tiefe und Stencil → Emulation (kombiniertes `D32S8`-Schattenbild + Kopien) offen; bis dahin `Unsupported` (`caps::render_pass_support`) |
+| Clear-Werte | Farbe (`double`) → Float/Uint/Sint je Format (Integer: Richtung null gerundet, gesättigt, NaN → 0 [Annahme]); `clearDepth` NaN → Gast-Fehler, außerhalb [0, 1] → `Unsupported` (ohne `depth_range_unrestricted`); `clearStencil` (u32) → untere 8 Bit |
+| Render-Pipeline (ohne Shader, `model::pipeline`) | Farb-Attachments mit Blend-Faktoren/-Operationen und Write-Mask, Depth/Stencil-Formate (kombiniertes Format muss für beide gleich sein), `rasterSampleCount` (Apple7 ≤ 4), Alpha-to-Coverage/-One, Topologie-Klasse (Pflicht bei Layered Rendering), Vertex-Deskriptor. Blending nur mit Blend-fähigem Format, Dual-Source nur auf Attachment 0 ohne weitere Farb-Attachments [Annahme, konservativ wie `maxFragmentDualSrcAttachments` = 1]. Metal-4-„Unspecialized“-Werte → `Unsupported`. `check_compatible` prüft Pipeline ↔ Render-Pass (Formate je Slot, Tiefe/Stencil, Sample-Anzahl) |
+| Vertex-Deskriptor (`model::vertex`) | alle `MTLVertexFormat`-Werte (Größe, Komponenten, natürliche Ausrichtung, Numerik); Step-Regeln laut Apple (PerVertex: Rate 1, PerInstance: > 0, Constant: 0; PerPatch* → `Unsupported` bis Tessellation); Apple7: 1-Byte-Ausrichtung, keine Stride-Grenze, dynamischer Stride. Lücken zu Vulkan (Stride > `maxVertexInputBindingStride`, Offset > `maxVertexInputAttributeOffset`, unausgerichtete Zugriffe, Divisoren) prüft `caps::vertex_input_support` |
 | `renderTargetArrayLength`, `[[render_target_array_index]]` | `layerCount` + `shaderOutputLayer` |
 | `setVertexAmplificationCount:` | Multiview (`viewMask`) mit Einschränkungen [Offen] |
 | Visibility-Result-Buffer (Okklusion, Boolean/Counting) | Occlusion-`VkQueryPool`; am Pass-Ende `vkCmdCopyQueryPoolResults` in den Gast-Buffer (Metal schreibt die Ergebnisse ebenfalls am Ende) |
@@ -382,7 +489,8 @@ in `caps.rs` sichern genau diese Zeilen ab). N = nativ, E = emuliert, – = nich
 | Mesh-Shader | N | N | – | E | Compute-Emulation |
 | Ray Tracing | N | N | – | E | Compute-BVH |
 | **Familie Mac2** | ja | ja | ja | ja | Tier 2 + BC |
-| **Familie Apple7** | nein | ja | nein | ja | braucht ASTC, Tile-Shader, Float-Atomics, FB-Fetch, ROG |
+| ETC2/EAC-, PVRTC-Formate | – | E | – | E | Transkodierung (WP-GPU-02: Teil der Apple7-Bedingung) |
+| **Familie Apple7** | nein | ja | nein | ja | braucht ASTC, ETC2/EAC, PVRTC, Tile-Shader, Float-Atomics, FB-Fetch, ROG |
 | **Familie Metal3** | ja | ja | nein | ja | (Apple7 oder Mac2) + Mesh |
 | **Familie Metal4** | nein | ja | nein | ja | Metal3 + Apple7 + Policy `metal4` |
 
@@ -716,9 +824,12 @@ Alle Payloads haben feste Länge. Jeder an `execute_stream` übergebene Strom er
 
 ### 9.7 Noch fehlende Befehlsklassen (Folge-WPs)
 
-Bibliotheken/Funktionen, Render-/Compute-Pipelines, Sampler, Argument-Buffer, Heaps, Fences/Events (derzeit
-`Unimplemented`), Depth/Stencil-Attachments und Resolve, indizierte/indirekte Draws, Blit-Texturbefehle,
-Queries/Zähler, IOSurfaces, Anzeige.
+Bibliotheken/Funktionen, Render-/Compute-Pipelines, Sampler, Depth/Stencil-States, Texture-Views und Swizzle,
+Argument-Buffer, Heaps, Fences/Events (derzeit `Unimplemented`), Depth/Stencil-Attachments, Resolve-Texturen,
+Level/Slice von Attachments, `setColorStoreAction:`, indizierte/indirekte Draws, Blit-Texturbefehle, Queries/Zähler,
+IOSurfaces, Anzeige. Das Objektmodell (WP-GPU-02) beschreibt Sampler, Depth/Stencil, Views, Render-Pass mit Resolve,
+Vertex-Deskriptor und Pipeline bereits vollständig; es fehlen nur die Drahtbefehle dafür (Folge-WP, zusammen mit
+WP-GPU-07).
 
 ## 10. Frontend P: Apples Paravirtual-GPU
 
@@ -821,11 +932,11 @@ M7 („Metal-Breite“ in der Roadmap) = WP-GPU-13, 17–22.
 |---|---|---|---|
 | G-1 | Setzen WindowServer/Core Animation/Core Image in macOS 27 eine **Apple-GPU-Familie** voraus (Tile-Shader, Memoryless, Framebuffer Fetch) oder laufen sie mit Mac2/Metal3? Davon hängt ab, ob WP-GPU-18 vor M5 nötig ist. | Spike (Variante G: eigener Treiber meldet Mac2; beobachten) | M4 |
 | G-2 | Shader-Form im Paravirt-Protokoll (AIR oder Apple-GPU-Code)? | reverse-engineer (S-GPU-1) | M4 |
-| G-3 | Exakte Zuordnung Familie ⇒ Features für macOS 27 (Metal-Feature-Set-Tabellen), insbesondere Metal4. | gpu-engineer mit öffentlicher Doku | WP-GPU-02 |
+| G-3 | Exakte Zuordnung Familie ⇒ Features für macOS 27 (Metal-Feature-Set-Tabellen), insbesondere Metal4. **Stand WP-GPU-02:** Die Ausgabe 2026-05-21 der Feature-Set-Tabellen kennt nur noch Apple2–Apple10 (keine Mac2-Spalte mehr) und nennt Apple7 als Untergrenze aller Metal-3/4-Geräte. Ob ein Gerät, das nur Mac2/Metal3 meldet, unter macOS 27 überhaupt akzeptiert wird, ist damit fraglich → verschärft G-1. | gpu-engineer mit öffentlicher Doku; architect | M4 |
 | G-4 | Gleiche Fähigkeitsmeldung auf beiden GPUs (kleinster gemeinsamer Nenner) oder ehrlich pro GPU? | Mensch | M5 |
 | G-5 | ASTC→BC7 (verlustbehaftet, 1 B/px) als Option erlaubt? Default bleibt exakt. | Mensch | WP-GPU-05 |
 | G-6 | EDR/`BGRA10_XR`/HDR auf SDR-Panel: Tonemapping-Regel? | gpu-engineer + Mensch | WP-GPU-15 |
-| G-7 | `lodAverage` und andere Sampler-Feinheiten ohne Vulkan-Entsprechung: ablehnen oder Näherung? | gpu-engineer | WP-GPU-02 |
+| G-7 | ~~`lodAverage` und andere Sampler-Feinheiten ohne Vulkan-Entsprechung~~ **Entschieden (WP-GPU-02):** `lodAverage` wird ignoriert (laut Apple ein Hinweis, den manche GPUs ignorieren); `reductionMode`/`lodBias` (Apple10) → `Unsupported`. | gpu-engineer | erledigt |
 | G-8 | Nutzt MetalFX private Treiberpfade? | Spike | WP-GPU-23 |
 | G-9 | Umfang von Metal 4 / Tensoren in macOS 27; Verhältnis zu `VK_KHR_cooperative_matrix`. | gpu-engineer + shader-compiler-engineer | M7 |
 | G-10 | Schnittstelle `ritsu-mem` ↔ GPU: memfd-Backing des Gast-RAM, Alias-Mappings, Dirty-Logging pro Seite. Braucht ADR. | architect | vor WP-GPU-11 |

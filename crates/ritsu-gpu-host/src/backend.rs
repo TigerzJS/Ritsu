@@ -13,11 +13,11 @@
 //!   if destroyed earlier (deferred destruction keyed on the queue timeline).
 //! * Errors caused by guest input are [`GpuError::Guest`]; they never poison the backend.
 
-use crate::caps::Capabilities;
+use crate::caps::{Capabilities, render_pass_support};
 use crate::handle::{Handle, HandleError, HandleTable, RawHandle};
 use crate::model::{
-    BufferDesc, LoadAction, ModelError, PrimitiveType, StorageMode, StoreAction, TextureDesc,
-    TextureUsage,
+    BufferDesc, ModelError, PrimitiveType, RenderPassDesc, RenderTargetLayout, StorageMode,
+    TextureDesc,
 };
 
 /// Backend-neutral buffer identifier.
@@ -61,27 +61,28 @@ pub enum GpuError {
     Host(String),
 }
 
-impl From<GpuError> for ritsu_core::Error {
-    fn from(e: GpuError) -> Self {
-        match e {
-            GpuError::Unimplemented(what) => ritsu_core::Error::Unimplemented(what),
-            GpuError::Host(msg) => ritsu_core::Error::Host(msg),
-            other => ritsu_core::Error::Guest(format!("gpu: {other}")),
+impl GpuError {
+    /// Whether the error means "valid Metal, not supported here" (reported as
+    /// `Unimplemented`), as opposed to invalid guest input or a host failure.
+    #[must_use]
+    pub const fn is_unsupported(&self) -> bool {
+        match self {
+            Self::Unimplemented(_) => true,
+            Self::Model(m) => m.is_unsupported(),
+            _ => false,
         }
     }
 }
 
-/// A colour attachment of a render pass.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ColorAttachment {
-    /// Attachment texture.
-    pub texture: TextureId,
-    /// Load action.
-    pub load: LoadAction,
-    /// Store action.
-    pub store: StoreAction,
-    /// Clear colour (used with [`LoadAction::Clear`]).
-    pub clear_color: [f32; 4],
+impl From<GpuError> for ritsu_core::Error {
+    fn from(e: GpuError) -> Self {
+        match e {
+            GpuError::Unimplemented(what) => ritsu_core::Error::Unimplemented(what),
+            GpuError::Model(m) => m.into(),
+            GpuError::Host(msg) => ritsu_core::Error::Host(msg),
+            other => ritsu_core::Error::Guest(format!("gpu: {other}")),
+        }
+    }
 }
 
 /// Encoded GPU work, in Metal encoder order. Backends translate it to Vulkan commands and
@@ -102,15 +103,9 @@ pub enum GpuCommand {
         /// Byte count.
         size: u64,
     },
-    /// Start a render encoder.
-    BeginRenderPass {
-        /// Render area width (0 = from first attachment).
-        width: u32,
-        /// Render area height (0 = from first attachment).
-        height: u32,
-        /// Colour attachments.
-        color_attachments: Vec<ColorAttachment>,
-    },
+    /// Start a render encoder (attachments, resolve targets, clear values; validated with
+    /// [`RenderPassDesc::validate`] against the backend's textures).
+    BeginRenderPass(Box<RenderPassDesc<TextureId>>),
     /// End the render encoder.
     EndRenderPass,
     /// Non-indexed draw.
@@ -305,60 +300,21 @@ impl NullBackend {
 
     fn validate_render_pass(
         &self,
-        width: u32,
-        height: u32,
-        attachments: &[ColorAttachment],
-    ) -> Result<(), GpuError> {
-        let max = self.caps.limits.max_color_attachments as usize;
-        if attachments.len() > max {
-            return Err(GpuError::Guest(format!(
-                "{} colour attachments exceed limit {max}",
-                attachments.len()
-            )));
-        }
-        if attachments.is_empty() && (width == 0 || height == 0) {
-            return Err(GpuError::Guest(
-                "render pass without attachments needs an explicit render area".into(),
-            ));
-        }
-        for (i, a) in attachments.iter().enumerate() {
-            if attachments.iter().take(i).any(|b| b.texture == a.texture) {
-                return Err(GpuError::Guest(format!("attachment {i} bound twice")));
-            }
-            let t = self.texture(a.texture)?;
-            let d = &t.desc;
-            if !d.usage.contains(TextureUsage::RENDER_TARGET) {
-                return Err(GpuError::Guest(format!(
-                    "attachment {i} lacks renderTarget usage"
-                )));
-            }
-            if d.pixel_format.is_compressed() || d.pixel_format.is_depth_stencil() {
-                return Err(GpuError::Guest(format!(
-                    "attachment {i} has non-colour-renderable format {:?}",
-                    d.pixel_format
-                )));
-            }
-            if d.storage_mode == StorageMode::Memoryless
-                && (a.load == LoadAction::Load || a.store == StoreAction::Store)
-            {
-                return Err(GpuError::Guest(format!(
-                    "memoryless attachment {i} cannot be loaded or stored"
-                )));
-            }
-            if width > d.width || height > d.height {
-                return Err(GpuError::Guest(format!(
-                    "render area {width}x{height} exceeds attachment {i}"
-                )));
-            }
-        }
-        Ok(())
+        pass: &RenderPassDesc<TextureId>,
+    ) -> Result<RenderTargetLayout, GpuError> {
+        let layout = pass.validate(&self.caps.limits, |id| {
+            Ok::<_, GpuError>(self.texture(id)?.desc)
+        })?;
+        render_pass_support(&self.caps, &layout)?;
+        Ok(layout)
     }
 
     fn validate_submission(&self, s: &Submission) -> Result<(), GpuError> {
         #[derive(PartialEq)]
         enum Enc {
             None,
-            Render,
+            /// Render encoder; `true` while a store action is still deferred (`Unknown`).
+            Render(bool),
             Compute,
         }
         let mut enc = Enc::None;
@@ -386,25 +342,23 @@ impl NullBackend {
                         return Err(wrong("overlapping copy within one buffer"));
                     }
                 }
-                GpuCommand::BeginRenderPass {
-                    width,
-                    height,
-                    color_attachments,
-                } => {
+                GpuCommand::BeginRenderPass(pass) => {
                     if enc != Enc::None {
                         return Err(wrong("nested encoder"));
                     }
-                    self.validate_render_pass(*width, *height, color_attachments)?;
-                    enc = Enc::Render;
+                    let layout = self.validate_render_pass(pass)?;
+                    enc = Enc::Render(layout.deferred_store_action);
                 }
-                GpuCommand::EndRenderPass => {
-                    if enc != Enc::Render {
-                        return Err(wrong("EndRenderPass without render encoder"));
+                GpuCommand::EndRenderPass => match enc {
+                    Enc::Render(false) => enc = Enc::None,
+                    // No command can set a deferred store action yet, so it is still unknown.
+                    Enc::Render(true) => {
+                        return Err(wrong("store action still unknown at the end of encoding"));
                     }
-                    enc = Enc::None;
-                }
+                    _ => return Err(wrong("EndRenderPass without render encoder")),
+                },
                 GpuCommand::Draw { .. } => {
-                    if enc != Enc::Render {
+                    if !matches!(enc, Enc::Render(_)) {
                         return Err(wrong("draw outside render encoder"));
                     }
                 }
@@ -527,7 +481,12 @@ impl GpuBackend for NullBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{CpuCacheMode, HazardTrackingMode, PixelFormat};
+    use crate::model::{
+        AttachmentDesc, ClearColor, ColorAttachmentDesc, CpuCacheMode, DepthAttachmentDesc,
+        HazardTrackingMode, LoadAction, MultisampleDepthResolveFilter,
+        MultisampleStencilResolveFilter, PixelFormat, ResolveTarget, StencilAttachmentDesc,
+        StoreAction, TextureType, TextureUsage,
+    };
 
     fn backend() -> NullBackend {
         NullBackend::new(Capabilities::iris_xe_assumed())
@@ -551,13 +510,21 @@ mod tests {
         )
     }
 
-    fn color(texture: TextureId) -> ColorAttachment {
-        ColorAttachment {
-            texture,
-            load: LoadAction::Clear,
-            store: StoreAction::Store,
-            clear_color: [0.0, 0.0, 0.0, 1.0],
+    fn color(texture: TextureId) -> ColorAttachmentDesc<TextureId> {
+        ColorAttachmentDesc {
+            attachment: AttachmentDesc::new(texture, LoadAction::Clear, StoreAction::Store),
+            clear_color: ClearColor::default(),
         }
+    }
+
+    fn begin(atts: &[ColorAttachmentDesc<TextureId>], width: u32, height: u32) -> GpuCommand {
+        let mut pass = RenderPassDesc::empty();
+        for (slot, a) in pass.color_attachments.iter_mut().zip(atts) {
+            *slot = Some(*a);
+        }
+        pass.render_target_width = width;
+        pass.render_target_height = height;
+        GpuCommand::BeginRenderPass(Box::new(pass))
     }
 
     #[test]
@@ -624,14 +591,7 @@ mod tests {
         let t = b.create_texture(&rt(64, 64)).unwrap();
         b.destroy_texture(t).unwrap();
         let s = Submission {
-            commands: vec![
-                GpuCommand::BeginRenderPass {
-                    width: 0,
-                    height: 0,
-                    color_attachments: vec![color(t)],
-                },
-                GpuCommand::EndRenderPass,
-            ],
+            commands: vec![begin(&[color(t)], 0, 0), GpuCommand::EndRenderPass],
         };
         assert!(matches!(b.submit(&s), Err(GpuError::Handle(_))));
         assert_eq!(b.completed(), SubmissionToken(0));
@@ -643,11 +603,7 @@ mod tests {
         let t = b.create_texture(&rt(640, 480)).unwrap();
         let s = Submission {
             commands: vec![
-                GpuCommand::BeginRenderPass {
-                    width: 640,
-                    height: 480,
-                    color_attachments: vec![color(t)],
-                },
+                begin(&[color(t)], 640, 480),
                 GpuCommand::Draw {
                     primitive: PrimitiveType::Triangle,
                     vertex_start: 0,
@@ -790,15 +746,8 @@ mod tests {
                 ..rt(64, 64)
             })
             .unwrap();
-        let pass = |atts: Vec<ColorAttachment>, w, h| Submission {
-            commands: vec![
-                GpuCommand::BeginRenderPass {
-                    width: w,
-                    height: h,
-                    color_attachments: atts,
-                },
-                GpuCommand::EndRenderPass,
-            ],
+        let pass = |atts: Vec<ColorAttachmentDesc<TextureId>>, w, h| Submission {
+            commands: vec![begin(&atts, w, h), GpuCommand::EndRenderPass],
         };
         assert!(b.submit(&pass(vec![color(ok_tex)], 64, 64)).is_ok());
         assert!(b.submit(&pass(vec![color(ok_tex)], 65, 64)).is_err());
@@ -811,7 +760,7 @@ mod tests {
         assert!(b.submit(&pass(vec![], 16, 16)).is_ok());
         // Memoryless: clear + don't-care is fine, store is not.
         let mut m = color(memoryless);
-        m.store = StoreAction::DontCare;
+        m.attachment.store = StoreAction::DontCare;
         assert!(b.submit(&pass(vec![m], 0, 0)).is_ok());
         assert!(b.submit(&pass(vec![color(memoryless)], 0, 0)).is_err());
         assert_eq!(
@@ -819,6 +768,75 @@ mod tests {
             2 * 64 * 64 * 4,
             "memoryless not charged"
         );
+    }
+
+    #[test]
+    fn msaa_resolve_depth_stencil_and_deferred_store() {
+        let mut b = backend();
+        let msaa = b
+            .create_texture(&TextureDesc {
+                texture_type: TextureType::Type2DMultisample,
+                sample_count: 4,
+                storage_mode: StorageMode::Memoryless,
+                usage: TextureUsage::RENDER_TARGET,
+                ..rt(64, 64)
+            })
+            .unwrap();
+        let resolved = b.create_texture(&rt(64, 64)).unwrap();
+        let mut c = color(msaa);
+        c.attachment.store = StoreAction::MultisampleResolve;
+        let one = |cmd| Submission {
+            commands: vec![cmd, GpuCommand::EndRenderPass],
+        };
+        // Resolve store action without a resolve texture: guest error, not a misrender.
+        assert!(matches!(
+            b.submit(&one(begin(&[c], 0, 0))),
+            Err(GpuError::Model(ModelError::InvalidAttachment { .. }))
+        ));
+        c.attachment.resolve = Some(ResolveTarget {
+            texture: resolved,
+            level: 0,
+            slice: 0,
+            depth_plane: 0,
+        });
+        assert!(b.submit(&one(begin(&[c], 0, 0))).is_ok());
+
+        // Combined depth/stencil texture: fine. Separate textures: valid Metal, but not
+        // expressible with dynamic rendering yet → unsupported, never silently dropped.
+        let ds = |fmt| TextureDesc::new_2d(fmt, 64, 64, TextureUsage::RENDER_TARGET);
+        let combined = b
+            .create_texture(&ds(PixelFormat::Depth32Float_Stencil8))
+            .unwrap();
+        let depth_only = b.create_texture(&ds(PixelFormat::Depth32Float)).unwrap();
+        let stencil_only = b.create_texture(&ds(PixelFormat::Stencil8)).unwrap();
+        let with_ds = |d, s| {
+            let mut pass = RenderPassDesc::empty();
+            pass.color_attachments[0] = Some(color(resolved));
+            pass.depth_attachment = Some(DepthAttachmentDesc {
+                attachment: AttachmentDesc::new(d, LoadAction::Clear, StoreAction::DontCare),
+                clear_depth: 1.0,
+                resolve_filter: MultisampleDepthResolveFilter::Sample0,
+            });
+            pass.stencil_attachment = Some(StencilAttachmentDesc {
+                attachment: AttachmentDesc::new(s, LoadAction::Clear, StoreAction::DontCare),
+                clear_stencil: 0,
+                resolve_filter: MultisampleStencilResolveFilter::Sample0,
+            });
+            one(GpuCommand::BeginRenderPass(Box::new(pass)))
+        };
+        assert!(b.submit(&with_ds(combined, combined)).is_ok());
+        let e = b.submit(&with_ds(depth_only, stencil_only)).unwrap_err();
+        assert!(e.is_unsupported(), "{e:?}");
+        assert!(matches!(
+            ritsu_core::Error::from(e),
+            ritsu_core::Error::Unimplemented(_)
+        ));
+
+        // A deferred store action that is never set fails at the end of the encoder.
+        let mut d = color(resolved);
+        d.attachment.store = StoreAction::Unknown;
+        let e = b.submit(&one(begin(&[d], 0, 0))).unwrap_err();
+        assert!(matches!(e, GpuError::Guest(_)), "{e:?}");
     }
 
     #[test]
