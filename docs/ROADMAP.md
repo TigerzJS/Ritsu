@@ -50,6 +50,7 @@ nicht gegen einen echten Gast.
 | WP-MEM-02 ★ | `GuestRam` (memfd + `host_map`, unsafe-Kern) nach ADR-0009 | dbt-engineer | M3 |
 | WP-PLAT-21 | virtio-Speicherordnung nach ADR-0009 | platform-engineer | M3 |
 | WP-ARCH-06 | Normative Prüfung offener Architekturregeln gegen Arm DDI 0487 | architect | M3 |
+| WP-ARCH-07 ★ | Familienpolitik: Apple7 ist laut Feature-Set-Tabellen 2026 Untergrenze für Metal 3/4 – welche GPU-Familie muss Ritsu melden, was folgt für Iris Xe/RTX? | architect | M4 |
 | WP-ARCH-02 | Schnittstelle DBT ↔ Plattform: Systemregister-Hooks (`MRS`/`MSR` für GIC-ICC), `HVC`/`SMC` (PSCI), `WFI`/`WFE`-Parken, IRQ-Pending-Flag und vCPU-Kick | architect | M3 |
 
 ## Spikes (vor den abhängigen Meilensteinen)

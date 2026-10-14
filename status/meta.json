@@ -112,7 +112,13 @@
    "wp": "WP-QA-04/08",
    "summary": "Benchmark-Suite + Fuzz-Regressionen in cargo test; Messung deckte −25…35 % T0-Verlust im laufenden WP-DBT-02 auf (an CPU-Spur gemeldet)",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-06",
+   "summary": "Normative Prüfung gegen Arm DDI 0487 M.d; ADR-0010 an 3 Stellen korrigiert, ADR-0009 um ROM-Regionen ergänzt",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 15:45"
+ "updatedAt": "2026-10-14 16:20"
 }

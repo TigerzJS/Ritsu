@@ -191,12 +191,25 @@
      "name": "WP-ARCH-06",
      "title": "Normative Prüfung gegen Arm DDI 0487 (HVC/SMC ohne EL2/EL3, WFI vs. WFE, Device-Retry, Teil-Stores)",
      "ms": "M3",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "",
      "accept": "Zitate mit Abschnitt",
      "owner": "architect",
-     "weight": 1
+     "weight": 1,
+     "note": "DDI 0487 M.d: 4 Regeln bestätigt, Teil-Stores erlaubt (R_TNVSL); ADR-0010 korrigiert (Abort statt SError, WFE, WFI-NOP); ADR-0009 §9 ROM-Regionen."
+    },
+    {
+     "id": "WP-ARCH-07",
+     "name": "WP-ARCH-07",
+     "title": "Familienpolitik: Apple7 als Metal-3/4-Untergrenze – welche GPU-Familie muss Ritsu melden?",
+     "ms": "M4",
+     "status": "wip",
+     "risk": true,
+     "deps": "",
+     "accept": "ADR-Entwurf",
+     "owner": "architect",
+     "weight": 2
     }
    ]
   },

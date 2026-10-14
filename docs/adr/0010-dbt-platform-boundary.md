@@ -47,19 +47,38 @@ widersprechen:
   Kodierung: op0 = 3, op1 = 0, CRn = 4, CRm = 6, op2 = 0. Quelle: Arm System Register XML, `ICC_PMR_EL1`
   ([Spiegel](https://df.lth.se/~getz/ARM/SysReg/AArch64-icc_pmr_el1.html)).
 * **`ESR_EL1.ISV` ist für unseren Gast immer 0.** Für Data Aborts, die in `ESR_EL1` gemeldet werden, ist ISV nur bei
-  Stage-2-Aborts und bei FEAT_LS64-Zugriffen 1. Der Gast hat kein EL2 (dbt.md E-1), und LS64 wird nicht gemeldet.
-  `DFSC = 0b010000` ist *Synchronous External abort, not on translation table walk*. Quelle: Arm System Register
-  XML, `ESR_EL1` ([Spiegel](https://df.lth.se/~getz/ARM/SysReg/AArch64-esr_el1.html)). Damit ist die **Annahme** aus
-  R-DBT-01 P1-2 („ob ISV gefüllt werden muss“) erledigt: ISV muss 0 sein.
-* **Ohne EL2 ist `HVC` UNDEFINED, ohne EL3 ist `SMC` UNDEFINED.** Emulatoren lassen die PSCI-Nutzung trotzdem Vorrang
-  haben und entscheiden erst zur Laufzeit, ob ein Aufruf PSCI ist. Quelle: QEMU-Commit „target-arm: Handle SMC/HVC
-  undef-if-no-ELx in pre_* helpers“
-  ([Commit](https://git.cs.tu-dortmund.de/SYS-OSS/FRET-qemu/commit/394043384337d3e84fe92ecc83bd90b0dcd661d5)). Die
-  normative Stelle im Arm ARM (Beschreibung von `HVC`/`SMC`) ist hier nicht direkt geprüft, Prüfweg: DDI 0487.
-* **`WFI` wacht auch bei einem per `PSTATE` maskierten, anstehenden Interrupt auf, `WFE` nicht.** Quelle: Will
-  Deacon auf LKML ([Thread](https://lkml.iu.edu/2606.2/06259.html)). Prüfweg für die Norm: Arm ARM DDI 0487,
-  Abschnitt zu *Wait for Interrupt*/*Wait for Event*. dbt.md §10.5 nennt für `WFE` „Interrupts“ pauschal. Richtig
-  ist dort „nicht maskierte Interrupts“.
+  Stage-2-Aborts und bei FEAT_LS64-Zugriffen 1, mit FEAT_RAS nie bei synchronen External Aborts. Der Gast hat kein
+  EL2 (dbt.md E-1), und LS64 wird nicht gemeldet. Mit `ISV = 0` ist `IL = 1`. `DFSC = 0b010000` ist *Synchronous
+  External abort, not on translation table walk or hardware update of translation table*. Quelle: Arm DDI 0487 M.d,
+  D24.2.44 `ESR_EL1` (ISV, IL, DFSC) und Pseudocode `AArch64_InstructionSyndromeValid` (J1.2.197), geprüft in
+  [R-ARCH-06](../research/R-ARCH-06-ddi0487.md) §3.5. Damit ist die **Annahme** aus R-DBT-01 P1-2 („ob ISV gefüllt
+  werden muss“) erledigt: ISV muss 0 sein. *(Quelle ersetzt durch R-ARCH-06.)*
+* **Ohne EL2 ist `HVC` UNDEFINED, ohne EL3 ist `SMC` UNDEFINED, auf EL0 und EL1 bedingungslos.** Die Steuerbits
+  `HCR_EL2.HCD`, `SCR_EL3.HCE`/`SMD` und der Trap `HCR_EL2.TSC` existieren dann nicht. Es entsteht eine Undefined
+  Instruction Exception nach EL1, EC 0x00, `ELR` = Befehl. Quelle: Arm DDI 0487 M.d, C6.2.175 `HVC`, C6.2.372 `SMC`,
+  D1.4.9 `R_ZVTPR`/`R_HMXQS`, Pseudocode `AArch64_CheckForSMCUndefOrTrap` (J1.2.179), geprüft in
+  [R-ARCH-06](../research/R-ARCH-06-ddi0487.md) §3.1. Emulatoren (z. B. QEMU für PSCI) behandeln `HVC`/`SMC`
+  trotzdem als Aufruf einer unsichtbaren Firmware-Ebene. Ritsu tut das auch (`HypercallOutcome::Handled`). Das ist
+  eine **bewusste Modellabweichung**: `ID_AA64PFR0_EL1.EL2/EL3` bleiben 0, und alles, was die Plattform nicht als
+  angekündigten Firmware-Aufruf erkennt, endet als `Undefined`, also genau im Architekturergebnis.
+  *(Quelle ersetzt durch R-ARCH-06.)*
+* **`WFI` wacht auch bei einem per `PSTATE.{A,I,F}` maskierten, anstehenden Interrupt auf, `WFE` nicht.** `WFE`
+  wacht außerdem durch `SEV` eines beliebigen PE, den Event-Stream und das **Löschen des globalen Monitors** (ein
+  fremder Schreibzugriff auf den per `LDXR` markierten Block). Spinlock-Code darf sich darauf verlassen und beim
+  Freigeben auf `SEV` verzichten. Das Event-Register setzen zusätzlich `SEVL` und jede Exception-Rückkehr. Ein
+  anstehender Interrupt macht `WFI` zum NOP, bevor die Trap-Prüfung (`SCTLR_EL1.nTWI`) greift. Quelle: Arm DDI 0487
+  M.d, D1.7.2.1 `R_VRLPB`/`R_NLVGY`, D1.7.1.4 `R_KBMFC`, D1.7.1.1 `R_XRZRK`, B2.12.2.1.1, B2.12.6, Tabelle D1-22,
+  Pseudocode `Hint_WFI`/`Hint_WFE`, geprüft in [R-ARCH-06](../research/R-ARCH-06-ddi0487.md) §3.2. dbt.md §10.5
+  nennt für `WFE` „Interrupts“ pauschal. Richtig ist dort „nicht maskierte Interrupts“.
+  *(Quelle ersetzt und ergänzt durch R-ARCH-06.)*
+* **Mehrfachzugriffe dürfen teilweise schreiben und wiederholt werden.** Löst ein Befehl mit mehr als einem
+  single-copy-atomaren Zugriff (`STP`, `ST1`–`ST4` mit mehreren Registern, seitenübergreifend unausgerichtete
+  Zugriffe) einen synchronen Data Abort aus, dürfen die nicht fehlschlagenden Ziele bereits geschrieben (architektonisch
+  UNKNOWN) sein. Die fehlschlagende Stelle und die Adressregister bleiben unverändert. Das gilt für Normal- und
+  Device-Speicher. Nach der Rückkehr wird der Befehl wiederholt, auch seine Device-Zugriffe. Ein **einzelner**
+  single-copy-atomarer Device-Zugriff darf dagegen nicht wiederholt werden. Quelle: Arm DDI 0487 M.d, D1.4.1.4
+  `R_TNVSL`, B2.2.1, B2.10.2 (mit Note), B2.10.2.4, geprüft in [R-ARCH-06](../research/R-ARCH-06-ddi0487.md)
+  §3.3/§3.4. *(Neu durch R-ARCH-06.)*
 * **IMPLEMENTATION-DEFINED-Raum:** Systemregister mit op0 = 3, CRn = 0b1x11 (also 11 oder 15) sind für
   implementierungsdefinierte Register reserviert. Quelle: Arm System Register XML, `S3_<op1>_<Cn>_<Cm>_<op2>`
   ([Spiegel](https://df.lth.se/~getz/ARM/SysReg/AArch64-s3_op1_cn_cm_op2.html)).
@@ -351,25 +370,33 @@ Der RAM-Fastpath und DBT-eigene Register zahlen nichts (R-3).
    * **Exklusive und atomare Zugriffe** (`LDXR/STXR`, LSE, `CASP`) auf Nicht-RAM → synchroner External Abort durch
      den DBT, ohne Hook. Das ersetzt „Gerät entscheidet“ aus dbt.md §8.4. Keine Plattform-Schnittstelle für Atomics.
    * **Mehrfachzugriffe** (`LDP/STP`, `LD1 {…}` mit mehreren Registern): Die Beschreibung erzeugt Einzelzugriffe in
-     Architekturreihenfolge (dbt.md §7.5). Für Mehrfach-*Stores* gilt die `probe`-Regel aus R-DBT-01 P1-2. Scheitert
-     ein Teil-Store nach einem bereits ausgeführten MMIO-Store, meldet der DBT einen **SError** statt eines
-     synchronen Aborts. Bei Mehrfach-*Loads* darf ein abgebrochener Befehl schon Lesezugriffe auf das Gerät
-     ausgeführt haben (**Annahme**: Arm erlaubt die Wiederholung von Device-Zugriffen nach einem Abort, Prüfweg Arm
-     ARM DDI 0487, Abschnitt zu Device-Speicher und *restartable* Befehlen).
+     Architekturreihenfolge (dbt.md §7.5). Scheitert ein Teilzugriff, meldet der DBT einen **synchronen** Data Abort
+     (Punkt 3) mit `FAR_EL1` = VA des fehlschlagenden Teilzugriffs. Bereits ausgeführte Teil-Stores, auf RAM wie auf
+     MMIO, bleiben bestehen. Das ist architekturkonform (Fakt „Mehrfachzugriffe“ oben, `R_TNVSL`). Nach der Rückkehr
+     wiederholt der Gast den Befehl, und die erneuten Gerätezugriffe sind erlaubt (B2.10.2.4). Die `probe`-Regel aus
+     R-DBT-01 P1-2 bleibt zulässig, ist aber nicht nötig. Ob sie bleibt, entscheidet `dbt-engineer` (R-ARCH-06
+     §3.4). **Pflicht:** Der DBT ruft für einen einzelnen Zugriff `mmio_read`/`mmio_write` **höchstens einmal** auf.
+     Kein Retry, kein Wiederabspielen nach einem kalten Stub, und eine Schreibbarkeitsprüfung auf MMIO liest nie.
+     Ein einzelner single-copy-atomarer Device-Zugriff darf architektonisch nicht wiederholt werden (B2.10.2).
+     *(Geändert durch R-ARCH-06: Die frühere SError-Regel beruhte auf der Annahme, Teilaktualisierung sei verboten.
+     Diese Annahme ist widerlegt. Die Annahme zur Device-Wiederholung ist bestätigt und jetzt Fakt.)*
    * Aufruf `hooks.mmio_read/write(pa, width[, value])`. Bei `Ok` setzt die Beschreibung fort (Zielregister,
      Writeback). Es gibt keinen Exit und keinen Wiederholungs-Puffer.
 3. **Fehler** (`Err(MmioAbort::External)`): synchroner Data Abort nach EL1, EC 0x24 (aus EL0) bzw. 0x25 (aus EL1),
-   `ISS`: DFSC 0x10, `WnR` aus der Richtung, `ISV = 0` (Fakt oben), `FnV = 0`, `FAR_EL1` = VA des Teilzugriffs,
-   `ELR_EL1` = PC des Befehls, Zustand unverändert. In T1/T2 gibt der Helper einen Status zurück. Der kalte Stub
-   schreibt die gecachten Register der vorherigen Befehle zurück, setzt `PC` und verlässt den Block (dbt.md §4.3,
-   §10.2).
+   `IL = 1`, `ISS`: DFSC 0x10, `WnR` aus der Richtung (bei atomaren Befehlen erlaubt die Architektur einen
+   beliebigen Wert, Ritsu setzt 1), `ISV = 0` (Fakt oben), `FnV = 0`, `EA = 0`, `FAR_EL1` = VA des Teilzugriffs,
+   `ELR_EL1` = PC des Befehls. `SET` (ISS[12:11]) gibt es nur, wenn FEAT_RAS gemeldet wird. Das entscheidet
+   WP-ARCH-03. Registerzustand unverändert, bei Mehrfach-Stores dürfen frühere Teil-Stores bestehen bleiben (Punkt
+   2). In T1/T2 gibt der Helper einen Status zurück. Der kalte Stub schreibt die gecachten Register der vorherigen
+   Befehle zurück, setzt `PC` und verlässt den Block (dbt.md §4.3, §10.2). *(`IL`, `EA`, `WnR` bei Atomics und
+   `SET` ergänzt durch R-ARCH-06 §3.5.)*
 4. **Ordnung:** MMIO ist ein synchroner Aufruf in Programmreihenfolge und damit nie spekulativ (dbt.md §7.5). Vorher
    ausgeführte Gast-Stores auf RAM sind x86-Stores desselben Threads. Die Synchronisation zum Geräte-Thread
    (Release/Acquire im Gerät, z. B. eventfd oder Lock) macht sie dort sichtbar. Der Gast muss ohnehin `DMB`/`DSB`
    vor die Doorbell setzen.
 5. **Befehlsabruf** aus Nicht-RAM: Instruction Abort (External, IFSC 0x10) durch den DBT, ohne Hook. Code, der
-   ausgeführt wird (Boot-ROM), muss deshalb in einer RAM-artigen Region liegen (siehe Folgearbeiten: nur lesbare
-   Regionen in `GuestRam`).
+   ausgeführt wird (Boot-ROM), muss deshalb in einer RAM-artigen Region liegen. Nur lesbare, ausführbare Regionen
+   legt der Nachtrag zu [ADR-0009](0009-shared-guest-ram.md) §9 fest. *(Verweis aktualisiert durch R-ARCH-06.)*
 
 ### 6. Interrupt-Zustellung: `VcpuSignals`
 
@@ -424,14 +451,30 @@ sind nur zwischen zwei `run()`-Aufrufen erreichbar (Borrow-Regeln). `run()` pani
 | Exit | Wann | Zustand bei Rückkehr | Pflicht des Runners |
 |---|---|---|---|
 | `Hypercall{conduit, imm}` | `HVC #imm` oder `SMC #imm` aus **EL1**. Aus EL0 sind beide UNDEFINED, ohne Exit (Architektur). | `PC` = Adresse des Befehls | Mit `X0…X17` per `state_mut()` (SMCCC/PSCI) arbeiten, dann `complete_hypercall(Handled)`: `PC += 4` und Monitor löschen (wie Eintritt und Rückkehr einer echten Exception). Oder `complete_hypercall(Undefined)`: UNDEFINED am Befehl (EC 0x00, `ELR` = Befehl). Ohne Abschluss behandelt das nächste `run()` den Aufruf als `Undefined` (`debug_assert`). |
-| `Wfi` | `WFI` aus EL1 (oder EL0 mit `SCTLR_EL1.nTWI = 1`) **und** keine Wake-Bedingung: kein IRQ/FIQ-Pegel (unabhängig von `PSTATE`), kein SError, keine Anforderung. Mit Wake-Bedingung ist `WFI` ein NOP ohne Exit. EL0 mit `nTWI = 0` → Trap EC 0x01, ohne Exit. | `WFI` ist abgeschlossen, `PC` zeigt auf den Folgebefehl | Parken mit `signals.wait_for_wake(eigene_nächste_Timer_Deadline)`, danach eigene Timer auswerten (PPI setzen), wieder `run()`. Spurious Rückkehr ist erlaubt (Arm: `WFI` darf jederzeit enden). |
+| `Wfi` | `WFI` aus EL1 (oder EL0 mit `SCTLR_EL1.nTWI = 1`) **und** keine Wake-Bedingung: kein IRQ/FIQ-Pegel (unabhängig von `PSTATE`), kein SError, keine Anforderung. Mit Wake-Bedingung ist `WFI` ein NOP ohne Exit. EL0 mit `nTWI = 0` **und ohne anstehenden IRQ-/FIQ-Pegel oder SError** → Trap EC 0x01, ohne Exit. Steht ein Pegel an, ist `WFI` auch dort ein NOP, weil `Hint_WFI` anstehende Interrupts vor dem Trap prüft (R-ARCH-06 §3.2). | `WFI` ist abgeschlossen, `PC` zeigt auf den Folgebefehl | Parken mit `signals.wait_for_wake(eigene_nächste_Timer_Deadline)`, danach eigene Timer auswerten (PPI setzen), wieder `run()`. Spurious Rückkehr ist erlaubt (Arm: `WFI` darf jederzeit enden). |
 | `Stopped` | `STOP` angefordert (Pause, Snapshot, Reset, Shutdown, Debugger) | Befehlsgrenze | Runner entscheidet (Barriere, Reset, Ende) |
 | `Fatal(VcpuFatal)` | Host-Fehler (Code-Cache dauerhaft voll, verletzte Invariante) | best effort | VM kontrolliert beenden, nie still weiterlaufen (platform.md §11) |
 
 `WFE`, `SEV`, `SEVL` erledigt der DBT **intern** (kurz spinnen, dann über denselben Park-Mechanismus mit begrenztem
-Timeout, dbt.md §10.5). Es gibt keinen Exit. Geweckt wird nur durch *nicht maskierte* Interrupts (Fakt oben), `SEV`
-anderer vCPUs, den Event-Stream aus `CNTKCTL_EL1` und Anforderungen. Ein späterer User-Mode-Betrieb (WP-DBT-03) darf
-`VcpuExit` um `Syscall{imm}` erweitern (`#[non_exhaustive]`).
+Timeout, dbt.md §10.5). Es gibt keinen Exit. Für das Event-Register und die Weckereignisse gilt (Fakt oben,
+R-ARCH-06 §3.2):
+
+* Das Event-Register setzen `SEV` (jede vCPU, per Rundruf über `VcpuSignals`), `SEVL`, **jede Exception-Rückkehr**
+  (`ERET`), das **Löschen des globalen Monitors** dieser vCPU und der Event-Stream aus `CNTKCTL_EL1`. Ist es beim
+  `WFE` gesetzt, wird es gelöscht, und der Befehl endet sofort. Das gilt auch aus EL0 mit `SCTLR_EL1.nTWE = 0`. Nur
+  wenn es nicht gesetzt ist, folgt dort der Trap (EC 0x01).
+* Geweckt wird ein schlafendes `WFE` durch *nicht maskierte* Interrupts (`PSTATE.I`/`F`/`A` = 0 für IRQ/FIQ/SError),
+  `SEV` anderer vCPUs, den Event-Stream, das Löschen des globalen Monitors und Anforderungen.
+* **Löschen des globalen Monitors:** Ein fremder Schreibzugriff auf den per `LDXR` markierten Block muss ein
+  schlafendes `WFE` wecken. Spinlock-Code darf sich darauf verlassen und beim Freigeben auf `SEV` verzichten
+  (B2.12.6). Weil der DBT normale Stores anderer vCPUs nicht beobachtet, ist bei scharfem lokalem Monitor das
+  **Polling des markierten Werts** während des Wartens Pflicht (dbt.md §10.5, O-DBT-17). Der begrenzte Timeout ist
+  die Rückfallebene für Korrektheit, nicht nur eine Optimierung. Ein Aufwachen ohne Grund ist immer erlaubt
+  (`I_QGHTM`).
+
+*(Absatz korrigiert durch R-ARCH-06: Die frühere Fassung „geweckt wird nur durch …“ ließ das Löschen des globalen
+Monitors und die Event-Register-Quellen `SEVL`/Exception-Rückkehr aus.)* Ein späterer User-Mode-Betrieb (WP-DBT-03)
+darf `VcpuExit` um `Syscall{imm}` erweitern (`#[non_exhaustive]`).
 
 **7.3 Threading.** Ein Host-Thread pro vCPU. `Vcpu` ist `Send`, nicht `Sync`, `VcpuSignals` ist `Sync`. Der Runner
 (`ritsu-platform`) läuft in diesem Thread. `ritsu-vmm` startet und pinnt ihn. Fremde Threads greifen auf eine vCPU nur
@@ -497,7 +540,8 @@ Stop-the-world nicht mit einem Shootdown verklemmen.
     `VcpuExit::Hypercall`.
   * **PLAT-15:** `VcpuRunner`, Stopp-Barriere, Reset und Shutdown, Messung M-4 (Teil „parkt“).
   * **ADR-0009-Nachtrag** (bei dessen Umsetzung WP-MEM-02): nur lesbare RAM-Regionen (ROM, Befehlsabruf erlaubt,
-    Writes → MMIO-Hook oder Abort) für das Boot-ROM (§5.5).
+    Writes → MMIO-Hook oder Abort) für das Boot-ROM (§5.5). Der Nachtrag liegt als ADR-0009 §9 vor (Proposed).
+    *(Stand aktualisiert durch R-ARCH-06.)*
   * **test-engineer:** Stresstest M-6, Fuzz-Ziel für die Anspruchsprüfung und für `PlatformHooks`-Folgen gegen den
     GIC.
   * **Dokumente nach Freigabe** auf diesen ADR verweisen lassen: dbt.md §1, §7.5, §8.4, §10.1, §10.3–§10.5,
@@ -537,3 +581,19 @@ Messorte: `bench/dbt-platform/` (neu) und die Zähler pro Exit- und Hook-Grund (
 7. **Spec-Ergebnis S-BOOT-1/PLAT-07:** Braucht der Gast Plattformwirkung, die weder als Hook noch als Exit an einer
    Befehlsgrenze ausdrückbar ist (etwa ein Systemregister, das `TbFlags` ändert, oder EL2 im Gast, platform.md §15
    Frage 10), ist dieser ADR zu ersetzen.
+
+## Änderungen
+
+* **2026-10-14, `architect` (WP-ARCH-06), Status bleibt Proposed:** Normative Prüfung der bisher nur sekundär
+  belegten Regeln gegen Arm DDI 0487 M.d, Bericht [R-ARCH-06](../research/R-ARCH-06-ddi0487.md). Die Entscheidung
+  (Option C) und die Schnittstellen-Skizze sind unverändert. Geändert:
+  * Kontext, Fakten: Quellen für ISV, `HVC`/`SMC` und `WFI`/`WFE` durch Arm-Zitate ersetzt. `Handled` als bewusste
+    Modellabweichung benannt. `WFE`-Fakt um das Löschen des globalen Monitors und die Event-Register-Quellen
+    ergänzt. Neuer Fakt zu Teilaktualisierung und Wiederholung bei Mehrfachzugriffen.
+  * §5.2 Mehrfachzugriffe: Die SError-Regel ist entfallen, weil Arm Teilaktualisierung bei synchronem Data Abort
+    erlaubt (`R_TNVSL`). Neu gelten der synchrone Abort und die Pflicht „höchstens ein Hook-Aufruf pro
+    Einzelzugriff“.
+  * §5.3: `IL = 1`, `EA = 0`, `WnR` bei atomaren Befehlen, `SET` nur mit FEAT_RAS (WP-ARCH-03).
+  * §5.5 und Folgearbeiten: Verweis auf den ADR-0009-Nachtrag (§9).
+  * §7.2: Trap von `WFI` aus EL0 nur ohne anstehenden Interrupt. `WFE`-Absatz mit vollständigen Weckereignissen und
+    Event-Register-Quellen sowie Monitor-Polling als Pflicht.

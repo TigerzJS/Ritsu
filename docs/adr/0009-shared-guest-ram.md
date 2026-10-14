@@ -31,6 +31,7 @@ Schnittstelle kennt außerdem weder Atomics noch Speicherordnung und liefert kei
 | R-6 | **GPU (G-10):** memfd-Backing des Gast-RAM, **Alias-Mappings**, die gast-physisch verstreute Seiten zu einem zusammenhängenden Host-VA-Bereich zusammenlegen (Import per `VK_EXT_external_memory_host`), und **Dirty-Logging** pro Seite (Strategie c). | gpu.md §6.2, G-10, WP-GPU-11 |
 | R-7 | Gast-Eingaben sind feindlich: Jeder Zugriff ist bereichsgeprüft, bei Fehler gibt es keinen Teil-Write, kein Panic und keinen SIGBUS. | CLAUDE.md §3 Regel 2, Q-SEC-1 |
 | R-8 | Die Abhängigkeitsregel bleibt: `ritsu-gpu-host` hängt **nicht** von `ritsu-mem` ab. | ARCHITECTURE.md §4 |
+| R-9 | **Nur lesbare, ausführbare Regionen** (Boot-ROM): Der DBT holt Befehle nur aus `GuestRam` und nie über MMIO. Code vor dem Kernel braucht deshalb eine RAM-artige Region, die der Gast lesen und ausführen, aber nicht still überschreiben kann. Gast-Writes enden in einer architekturkonformen Exception oder optional beim Plattform-Gerät (Flash-artiger ROM-Device-Modus). Nachtrag, siehe §9. | ADR-0010 §5.5, §8 (`SYSTEM_RESET` lädt das ROM neu), platform.md §2/§10, CLAUDE.md §3 Regel 5 |
 
 **Fakten mit Quelle**
 
@@ -266,6 +267,140 @@ pub trait GuestMemory: Send + Sync {                       // objektsicher: virt
 
 Reihenfolge: 1 → (2 ∥ 3 ∥ 4) → 5/6/7 nach Bedarf. Schritt 1 ist klein und entblockt WP-DBT-09 sowie PLAT-10.
 
+### 9. Region-Attribute: nur lesbare und nicht ausführbare Regionen (Nachtrag, R-9)
+
+**Problem.** ADR-0010 §5.5 lässt Befehlsabruf nur aus `GuestRam` zu. Das Boot-ROM (`AVPBooter`, vom Nutzer geliefert,
+platform.md §2) muss also in einer RAM-Region liegen. Ohne Attribut wäre diese Region beschreibbar: Ein Gast, der
+sein ROM überschreibt, liefe still mit verändertem ROM weiter (CLAUDE.md §3 Regel 5). Wie Apples Plattform auf
+Writes in die ROM-Region reagiert (Abort, Ignorieren, Flash-Befehl), ist **[Spec nötig]** (platform.md §3,
+„Boot-ROM / Flash (pflash?)“).
+
+**Optionen**
+
+| Option | Kosten | Risiko | Experiment, das sie widerlegt |
+|---|---|---|---|
+| A: ROM als MMIO-Gerät | gering | Befehlsabruf unmöglich (ADR-0010 §5.5), also untauglich | – (verworfen) |
+| B: ROM als normales RW-RAM, nur beim Reset neu laden | keine | still falsch, wenn der Gast (oder ein Fehler im Gast) das ROM beschreibt | S-BOOT-1 zählt null ROM-Writes über viele Boots **und** die Spec legt Writes als erlaubt fest. Dann wäre B gleichwertig, C kostet aber trotzdem kaum mehr. |
+| **C: Region-Attribute R/W/X in `GuestRam`** (gewählt) | ~1 Tag in WP-MEM-02, ein TLB-Flag im DBT | niedrig: additiv, gleiche Fault-Pfade wie MMIO | Muss der Gast nachweislich in die ROM-Region schreiben und die Spec verlangt RW, wird die Region auf `Allow` gestellt. Die Schnittstelle bleibt. |
+| D: Write-Ignore als Modus in `ritsu-mem` | gering | Plattform-Politik im falschen Crate, still ignorierte Writes als Standard | – (über C mit `Device` und einem WI-Handler der Plattform erreichbar) |
+
+**Schnittstelle** (Skizze wie §2, die exakten Namen legt WP-MEM-02 fest):
+
+```rust
+// ritsu-mem
+/// Who may write a RAM-like region. Reads are always allowed: a region that cannot be
+/// read is not RAM but MMIO and does not belong to `GuestRam`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteAccess {
+    /// Normal RAM.
+    Allow,
+    /// ROM. Guest CPU writes → synchronous External abort; host-side writes → `MemError::ReadOnly`.
+    Deny,
+    /// ROM-device mode (flash-like): reads hit RAM, guest CPU writes go to the platform's MMIO
+    /// hook at the same PA (ADR-0010 §5); host-side writes → `MemError::ReadOnly`.
+    Device,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegionAttrs {
+    pub write: WriteAccess,
+    /// Instruction fetch allowed.
+    pub exec: bool,
+}
+impl RegionAttrs {
+    pub const RAM: Self = Self { write: WriteAccess::Allow, exec: true };
+    pub const ROM: Self = Self { write: WriteAccess::Deny, exec: true };
+}
+
+/// One RAM-like region of the machine layout; base and size are 16 KiB aligned.
+pub struct RegionSpec { pub base: GuestPhysAddr, pub size: u64, pub attrs: RegionAttrs }
+
+// Additions to the §2 trait (required method; RamRegion answers `RAM` for its range):
+//   fn region_attrs(&self, gpa: GuestPhysAddr) -> Option<RegionAttrs>;  // None = not RAM; no side effects
+// New error variant (`MemError` is #[non_exhaustive]):
+//   MemError::ReadOnly { addr: GuestPhysAddr }
+// GuestRam:
+//   fn new(layout: &[RegionSpec], …) -> Result<Arc<GuestRam>, MemError>;
+//   fn load_image(&self, gpa: GuestPhysAddr, data: &[u8]) -> Result<(), MemError>;  // host only, ignores `write`
+// HostRange (§3) additionally carries `attrs: RegionAttrs` of its region.
+```
+
+**Semantik je Zugriffsweg**
+
+| Weg | `Allow` | `Deny` (ROM) | `Device` (ROM-Device) |
+|---|---|---|---|
+| Gast-Load, Befehlsabruf (bei `exec`) | Fastpath | Fastpath | Fastpath |
+| Gast-Store (Einzel- oder Mehrfach-Store) | Fastpath | Slow-Path → synchroner Data Abort (Syndrom unten) | Slow-Path → `PlatformHooks::mmio_write(pa, …)` nach den Regeln von ADR-0010 §5.2 (Ausrichtung, höchstens ein Aufruf pro Einzelzugriff) |
+| Gast-Atomics und Exklusiv-Stores (`STXR`, `CAS`, LSE, `CASP`) | wie §2 | synchroner Data Abort | synchroner Data Abort (keine Atomics an Geräte, ADR-0010 §5.2) |
+| `write`, `store`, `compare_exchange`, `fetch_rmw`, `pread_into` | wie §2 | `Err(ReadOnly)`, kein Byte geschrieben (R-7) | `Err(ReadOnly)` |
+| `read`, `load`, `pwrite_from` | wie §2 | erlaubt | erlaubt |
+| `alias()` mit einer Seite der Region | wie §5 | `Err(ReadOnly)` | `Err(ReadOnly)` |
+| `load_image` (nur Host: Bau, `SYSTEM_RESET`) | erlaubt | erlaubt | erlaubt |
+| Befehlsabruf mit `exec = false` | Instruction Abort | Instruction Abort | Instruction Abort |
+
+Geräte-DMA in eine ROM-Region scheitert damit mit `MemError::ReadOnly`. Das Gerät meldet den Fehler über sein
+eigenes Protokoll (z. B. virtio-blk `IOERR`), nie per Panic.
+
+**Fault-Verhalten bei Gast-Schreibzugriff auf `Deny`** (normativ geprüft in
+[R-ARCH-06](../research/R-ARCH-06-ddi0487.md)):
+
+* **Art:** synchroner *External abort* auf dem Datenzugriff, **kein** Permission Fault. Der Schreibschutz ist eine
+  Eigenschaft der physischen Adresse im Speichersystem, nicht der Übersetzungstabellen. Arm definiert External
+  Aborts als Fehler im Speichersystem, die nicht die MMU erkennt (DDI 0487 M.d, D7.6). MMU-Faults entstehen dagegen
+  aus der Übersetzung (D8.15 `R_SQLMR`). Ein Permission Fault würde den Seitentabellen des Gasts widersprechen und
+  bräuchte eine Tabellenebene.
+* **Ziel und Vektor:** EL1 (kein EL2/EL3), synchroner Vektor-Offset (0x000/0x200/0x400 je nach Herkunft, kein
+  FEAT_DoubleFault2/`EASE`).
+* **Syndrom:** `ESR_EL1.EC` = 0x24 (aus EL0) bzw. 0x25 (aus EL1), `IL = 1`, `ISV = 0`, `DFSC = 0b010000`
+  (*Synchronous External abort, not on translation table walk*), `WnR = 1` (auch bei atomaren Befehlen, für die die
+  Architektur einen beliebigen Wert zulässt), `FnV = 0`, `EA = 0`, `S1PTW = 0`, `CM = 0`. `SET` nur, falls FEAT_RAS
+  gemeldet wird (WP-ARCH-03). `FAR_EL1` = VA des fehlschlagenden (Teil-)Zugriffs, `ELR_EL1` = Adresse des Befehls.
+  Das ist exakt das Syndrom von `MmioAbort::External` (ADR-0010 §5.3). Der DBT hat dafür **einen** Codepfad.
+* **Mehrfach-Stores**, die teils `Allow`, teils `Deny` treffen: Die schon ausgeführten Teil-Stores dürfen bestehen
+  bleiben (DDI 0487 `R_TNVSL`, R-ARCH-06 §3.4). Registerzustand unverändert.
+* **Befehlsabruf aus `exec = false`:** Instruction Abort, EC 0x20 (aus EL0) bzw. 0x21 (aus EL1), `IL = 1`,
+  `IFSC = 0b010000`, `FAR_EL1` = `ELR_EL1` = VA des Befehls. Das ist derselbe Pfad wie beim Abruf aus Nicht-RAM
+  (ADR-0010 §5.5).
+* Pro Region zählt `GuestRam` abgewiesene Gast-Writes (Diagnose für S-BOOT-1). Der Zähler wird nur im Slow-Path
+  erhöht.
+
+**Auswirkung auf `HostRange` und JIT**
+
+* `HostRange` trägt die `RegionAttrs` seiner Region. Vertrag: Über eine `HostRange` schreibt nur, wer
+  `attrs.write == Allow` geprüft hat. `pread_into` prüft intern, der JIT beim TLB-Füllen.
+* **TLB-Füllung** (dbt.md §7.3/§7.4): `addend` und Lese-Treffer wie bei RAM. Für `Deny` und `Device` bekommt
+  `cmp_write` ein Flag, das nie passt (wie `MMIO`/`NOTDIRTY`). Jeder Store geht dadurch in den Slow-Path, der nach
+  `attrs.write` verzweigt. Loads und RAM-Stores zahlen nichts (ADR-0010 R-3).
+* **Übersetzung:** Der Blockbau prüft `attrs.exec` pro Seite. ROM-Seiten bekommen wie jede Codeseite das Flag
+  `CODE` (§4). `load_image` meldet den Bereich wie ein externer Write (`CODE_WRITTEN`/`DIRTY`,
+  `WriteObserver::code_written`). Ein neu geladenes ROM (`SYSTEM_RESET`) invalidiert damit die alten Übersetzungen.
+  Der persistente Cache (Schlüssel: Seiten-Hash) ist nicht betroffen.
+* **`region_attrs`** ist zugleich die seiteneffektfreie Schreibbarkeitsprüfung, die der DBT für `probe` braucht:
+  `None` heißt MMIO, und dort darf nie lesend geprüft werden (R-ARCH-06 §3.3).
+* **Ergänzung der Invarianten aus §6:**
+  * **I-8** `host_map` blendet `Deny`- und `Device`-Regionen nur mit `PROT_READ` ein. Einziger Schreiber ist
+    `load_image`, und zwar per `pwrite` auf den memfd am Datei-Offset der Region, nie über das Mapping. Damit gilt
+    I-1 weiter, und `MAP_SHARED` macht den neuen Inhalt im Mapping sofort sichtbar. Ein DBT-Fehler, der ROM über
+    einen Host-Zeiger beschreibt, endet als Host-SIGSEGV statt als stille Verfälschung. Gast-Eingaben erreichen
+    diesen Fall nicht, weil Gast-Stores auf diese Seiten nie den Fastpath nehmen.
+
+**Annahmen**
+
+* **Annahme A-M5:** `AVPBooter` schreibt nicht in seine eigene Region, und `Deny` ist für den Boot ein brauchbarer
+  Standard. *Prüfweg:* Zähler abgewiesener ROM-Writes in S-BOOT-1 (PLAT-03). Zeigt sich, dass Apples Plattform
+  Writes ignoriert oder als Flash-Befehle versteht, stellt die Plattform die Region auf `Device` mit eigenem
+  Handler (WI oder Flash-Befehlssatz). `ritsu-mem` ändert sich dann nicht.
+* **Annahme A-M6:** Die ROM-Region lässt sich auf 16 KiB runden. Ein kürzeres Image wird mit Nullen aufgefüllt.
+  *Prüfweg:* Speicherkarte aus der Spec `memory-map` (PLAT-02/-03).
+
+**Umsetzung:** WP-MEM-01 nimmt `region_attrs` und `MemError::ReadOnly` in den Trait auf (`RamRegion`: `RAM` für den
+ganzen Bereich). WP-MEM-02 baut `RegionSpec`, I-8, `load_image`, `HostRange::attrs` und die Prüfungen in allen
+Schreibwegen. Tests: Jeder Schreibweg auf eine `Deny`-Region liefert `ReadOnly` und ändert kein Byte. Lesen und
+`pwrite_from` funktionieren. `load_image` ruft `code_written` auf. `alias` verweigert ROM-Seiten. Der DBT-Teil
+(TLB-Flag, Slow-Path, Syndrom, `exec`-Prüfung) gehört zu WP-DBT-06/-12, der Plattform-Teil (Layout mit ROM-Region,
+Neuladen bei `SYSTEM_RESET`) zu PLAT-15 und PLAT-03. Die Abhängigkeitsregel bleibt unberührt: Die Typen liegen in
+`ritsu-mem`, `ritsu-dbt` wertet sie aus, und die Plattform liefert das Layout über `ritsu-vmm`.
+
 ## Konsequenzen
 
 * **Positiv:** Ein Eigentümer und eine Wahrheit für Gast-RAM. T0- und T1-Atomics sind dieselben
@@ -307,3 +442,16 @@ Die Entscheidung ist falsch oder muss angepasst werden, wenn eine der folgenden 
    umgestellt (nach dem ersten Write wieder Fastpath, Shootdown beim Ernten).
 6. **Option C erneut prüfen**, falls WP-MEM-02 nach zwei Sitzungen am `unsafe`-Review hängt (CLAUDE.md §2.3):
    Dann `vm-memory` für Region-Verwaltung und Bulk übernehmen und nur CAS/Alias/Flags selbst bauen.
+7. **ROM-Regionen (§9, A-M5):** Zählt S-BOOT-1 abgewiesene Gast-Writes in die ROM-Region und belegt die Spec, dass
+   Apples Plattform sie zulässt oder ignoriert, wird die Region auf `Device` (mit WI- oder Flash-Handler der
+   Plattform) bzw. `Allow` gestellt. Die Schnittstelle bleibt. Ein neuer ADR ist nur nötig, wenn ein Zugriffsweg
+   gebraucht wird, den die drei `WriteAccess`-Fälle nicht abdecken.
+
+## Änderungen
+
+* **2026-10-14, `architect`, Status bleibt Proposed:** Nachtrag für nur lesbare und nicht ausführbare Regionen
+  (Boot-ROM), angestoßen durch ADR-0010 §5.5 und deren Folgearbeiten. Neu sind Anforderung R-9, Abschnitt §9
+  (`RegionAttrs`/`WriteAccess`, `region_attrs`, `MemError::ReadOnly`, `load_image`, `HostRange::attrs`,
+  Fault-Verhalten und Syndrom, Invariante I-8, Annahmen A-M5/A-M6) und Überprüfungspunkt 7. Die Abschnitte §1–§8
+  sind inhaltlich unverändert. Wo §9 sie ergänzt (Trait aus §2, `HostRange` aus §3, Invarianten aus §6), steht das
+  in §9.
