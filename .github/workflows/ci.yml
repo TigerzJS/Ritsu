@@ -31,33 +31,47 @@ jobs:
       - run: make fmt-check lint test-rust graph
 
   cpp:
-    name: cpp (${{ matrix.compiler }})
+    name: cpp (${{ matrix.name }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc, clang]
+        compiler: [gcc, clang, clang-asan]
         include:
           - compiler: gcc
+            name: gcc
             cc: gcc
             cxx: g++
+            build_dir: build/air2spirv
+            cmake_args: ""
           - compiler: clang
+            name: clang
             cc: clang
             cxx: clang++
+            build_dir: build/air2spirv-clang
+            cmake_args: ""
+          # ASan + UBSan (AIR2SPIRV_SANITIZE, ADR-0003); the 60 s libFuzzer smoke of
+          # fuzz_air_sniff runs in fuzz.yml.
+          - compiler: clang-asan
+            name: clang (ASan+UBSan)
+            cc: clang
+            cxx: clang++
+            build_dir: build/air2spirv-asan
+            cmake_args: -DAIR2SPIRV_SANITIZE=ON
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
     steps:
       - uses: actions/checkout@v4
-      # TODO(air2spirv): add llvm-dev / libspirv-tools-dev (or the pinned
-      # versions the CMake project requires) once compiler/air2spirv needs them.
+      # spirv-tools/spirv-headers come from noble-updates (>= 2025.1 for SPV_ENV_VULKAN_1_4);
+      # Ubuntu's spirv-tools package already ships headers, static libs and CMake configs.
       - name: Install toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build cmake clang clang-format spirv-tools
-      - run: make cpp
+            ninja-build cmake clang clang-format spirv-tools spirv-headers libclang-rt-18-dev
+      - run: make cpp CPP_BUILD_DIR=${{ matrix.build_dir }} CPP_CMAKE_ARGS=${{ matrix.cmake_args }}
       - name: clang-format check
         if: matrix.compiler == 'gcc' # formatting does not depend on the compiler
         run: make cpp-fmt-check

@@ -14,11 +14,12 @@ lauffähig ist, wird als *übersprungen* ausgewiesen, nie als bestanden).
 ## 1. Einstieg: Befehle
 
 ```bash
-make check          # fmt-check + clippy -D warnings + alle Tests (Rust + C++) + Crate-Graph + Doku-Links
+make check          # fmt-check + clippy -D warnings + alle Tests (Rust + C++) + cpp-fmt-check + Crate-Graph + Doku-Links
 make test           # nur Tests (test-rust + cpp)
 make test-rust      # cargo test --workspace
 make cpp            # air2spirv: CMake/Ninja-Build + ctest (überspringt mit Hinweis, solange das Projekt fehlt)
-make cpp-fmt-check  # clang-format --dry-run --Werror
+make cpp-fmt-check  # clang-format --dry-run --Werror (Teil von `make check`; überspringt sich, wenn clang-format fehlt)
+make fuzz-smoke     # 60 s je Fuzz-Target (Rust: cargo-fuzz/nightly, C++: libFuzzer/clang); FUZZ_TIME=<s>; überspringt sauber, wenn Werkzeuge fehlen
 make graph          # Abhängigkeitsregel (tools/check_crate_graph.py)
 make links          # relative Links in *.md (tools/check_md_links.py)
 cargo test -p ritsu-dbt -- --nocapture <filter>    # einzelner Test
@@ -180,6 +181,22 @@ und PAC-Schlüssel (Linux erlaubt Userland keine festen Schlüssel). Dafür gilt
 * Bekannte QEMU-Abweichungen (Fließkomma-NaN-Propagation, Flags bei einzelnen SIMD-Befehlen) werden in
   `masks.toml` je Orakel geführt.
 
+### 4.4a Decoder-Differenztest gegen `llvm-objdump` (Teil von WP-DBT-04)
+
+Für den *Decoder* (nicht für die Semantik) gibt es ein weiteres unabhängiges Orakel: LLVMs AArch64-Disassembler
+(`llvm-objdump --mattr=+all`, llvm-18 ist auf den Entwicklungs- und CI-Rechnern installiert; alternativ
+`llvm-mc --disassemble`). Idee, Ausarbeitung in WP-DBT-04:
+
+* Wörter aus den Kodierungstabellen (§4.2) plus Zufallswörter werden als rohe Befehlsfolge disassembliert.
+* Jedes Wort, das `ritsu_dbt::decode` als Befehl erkennt, muss von LLVM als **gültiger** Befehl mit passendem
+  Mnemonic und passenden Operanden gelesen werden (Abgleich über eine Normalisierung, nicht über Textgleichheit).
+* Ein Wort, das LLVM als ungültig meldet (`<unknown>`), darf **nicht** als Befehl dekodiert werden.
+* Ein Wort, das LLVM kennt, der Decoder aber als `Inst::Unknown` liefert, ist kein Fehler, sondern eine noch nicht
+  implementierte Befehlsklasse: der Test zählt sie und führt sie in einer Liste (die mit dem Ausbau schrumpft),
+  damit Lücken sichtbar bleiben (CLAUDE.md §3 Regel 5).
+* LLVM ist nur ein Orakel für die **Dekodierung**. Hardware (§4.3) bleibt das Orakel für die Semantik. Weichen
+  LLVM und Arm ARM voneinander ab, gilt das Arm ARM.
+
 ### 4.5 Seeds und Reproduzierbarkeit
 
 * Alle Zufallsquellen (Generator, `proptest`, Fuzz-Eingabe-Mutation außerhalb von libFuzzer) leiten sich aus einem
@@ -236,14 +253,28 @@ Fuzz-Target**, sonst ist er nicht „fertig“ im Sinne der Definition of Done.
 | `fuzz_virtqueue_walk` | `ritsu-virtio` | beliebiger Gastspeicher + Ring-/Deskriptorzustand | kein Panic, terminiert (Kettenlängen-/Zirkelgrenze), keine Zugriffe außerhalb des Gastspeichers, kein unbegrenzter Speicherbedarf |
 | `fuzz_mmio_bus` | `ritsu-platform` | Folge von (Adresse, Breite, Lesen/Schreiben, Wert) auf allen Geräten | kein Panic, keine Verletzung von Geräte-Zustandsinvarianten, Zugriffe außerhalb gültiger Register → definierte Antwort |
 | `fuzz_gpu_proto_decode` | `ritsu-gpu-proto` | beliebige Bytes als Befehlsstrom | Decode liefert `Err`, nie Panic; Roundtrip `encode(decode(x))` konsistent für gültige Ströme; Längenfelder werden vor Allokation begrenzt |
+| `fuzz_gpu_proto_hello` | `ritsu-gpu-proto` | beliebige Bytes als Bootstrap-/Sitzungsstrom | `decode_hello_stream` und `decode_session_stream` panikfrei; akzeptiertes HELLO überlebt Encode/Decode; Sitzungsstrom ist auch ein gültiger `decode_stream` |
+| `fuzz_gpu_proto_reply` | `ritsu-gpu-proto` | beliebige Bytes als Antwortstrom (Host → Gast) | `decode_reply_stream` panikfrei; akzeptierte Antworten re-enkodieren zu identischen Antworten |
+| `fuzz_gpu_host_session` | `ritsu-gpu-host` | gültiges HELLO, dann Fuzz-Bytes als weitere Ströme an `GuestSession<NullBackend>` | kein Panic; `StreamOutcome::reply_stream()` dekodiert immer fehlerfrei mit `decode_reply_stream` und liefert dieselben Antworten; Zähler bleiben innerhalb der Grenzen |
 | `fuzz_gpu_host_commands` | `ritsu-gpu-host` | strukturierte Befehlsfolgen (arbitrary) gegen ein Null-Backend | Ressourcen-Lebensdauer, Handle-Validierung, keine Panics, keine Lecks |
 | `fuzz_aarch64_decode` | `ritsu-dbt` | beliebige 32-Bit-Wörter | Decoder ist total; dekodierte Befehle re-enkodieren (wo definiert) identisch |
+| `fuzz_t0_step` | `ritsu-dbt` | Registerzustand (Seed) + Befehlswörter im RAM, bis 512 Schritte | T0-`step` panikfrei für jedes Wort; `Err` lässt den Zustand unverändert; sequentieller Schritt erhöht `PC` um 4; Befehlsabruf verändert das RAM nicht |
 | `fuzz_t0_vs_t1` | `ritsu-dbt` | Befehlswörter + Zustand | T0 und T1 (später T2) liefern gleichen Endzustand (Differenzfuzzing, keine Hardware nötig) |
 | `fuzz_softmmu_walk` | `ritsu-mem` | beliebige Seitentabellen + Adresse | Walk terminiert, keine Zugriffe außerhalb des Gastspeichers, Fehler als Gast-Fault |
 | `fuzz_air_sniff` (libFuzzer, C++) | `compiler/air2spirv/fuzz/` | beliebige Bytes als Bitcode-/`.metallib`-Container | `sniff()`/Parser gibt Fehlerstatus statt Absturz; unbekannte Records werden **gemeldet**, nie verworfen (ADR-0007); keine UB (ASan/UBSan) |
 | `fuzz_air2spirv_translate` (später) | `compiler/air2spirv/fuzz/` | mutierte gültige AIR-Module | jede Ausgabe besteht `spirv-val`, sonst sauberer Fehler |
 
 Neue Gast-Parser fügen ihr Target im **selben** Änderungssatz hinzu.
+
+**Stand (WP-QA-01 / WP-PLAT-16):** Vorhanden und in der CI sind `fuzz_gpu_proto_decode`, `fuzz_gpu_proto_hello`, `fuzz_gpu_proto_reply`,
+`fuzz_gpu_host_session`, `fuzz_virtqueue_walk`,
+`fuzz_mmio_bus`, `fuzz_aarch64_decode` und `fuzz_t0_step` (Rust, `fuzz/`) sowie `fuzz_air_sniff` (C++).
+Noch offen, weil der Parser bzw. das Crate fehlt: `fuzz_gpu_host_commands` (strukturierte Variante mit `arbitrary`;
+`fuzz_gpu_host_session` deckt den Bytestrom-Pfad ab), `fuzz_t0_vs_t1` (braucht T1),
+`fuzz_softmmu_walk` (Walker ist noch nicht fertig), `fuzz_air2spirv_translate`. Die Harnesses prüfen, wo möglich,
+gegen ein unabhängiges Modell (virtio-1.2-Layout, MMIO-Regionsmodell) statt nur auf Panics.
+Eingaben von `fuzz_virtqueue_walk`, `fuzz_mmio_bus`, `fuzz_t0_step` und `fuzz_gpu_host_session` folgen einem kleinen, im Kopf der jeweiligen
+Datei dokumentierten Byte-Format statt `arbitrary`, damit Seeds von Hand erzeugt werden können.
 
 ### 5.2 Technik
 
@@ -262,6 +293,9 @@ Neue Gast-Parser fügen ihr Target im **selben** Änderungssatz hinzu.
 * Startkorpus pro Target in `fuzz/corpus/<target>/` (Rust) bzw. `compiler/air2spirv/fuzz/corpus/<target>/` (C++):
   **klein, minimiert (`cmin`) und selbst erzeugt** (Seeds aus Unit-Tests, handgebaute gültige Strukturen,
   eigene Fixtures). Keine Apple-Dateien (ADR-0008). Gesamtgröße je Target in Git < 5 MB.
+* Die Seeds erzeugt `python3 fuzz/tools/gen_seeds.py` deterministisch aus den Formatbeschreibungen (nicht aus
+  Fremddaten). Ändert sich ein Eingabeformat oder die Wire-Spezifikation, wird das Skript angepasst und der
+  Korpus neu erzeugt.
 * Der große, wachsende Korpus der Nachtläufe lebt **nicht** in Git, sondern im GitHub-Actions-Cache bzw. als
   Artefakt, und wird nach jedem Lauf minimiert; nützliche neue Einträge werden gelegentlich per PR in den
   Git-Korpus übernommen.
@@ -277,7 +311,20 @@ Neue Gast-Parser fügen ihr Target im **selben** Änderungssatz hinzu.
 | Nachts | Langlauf je Target mit wachsendem Korpus | 30 min je Target (anfangs; Ziel M6: dauerhaft, Q-SEC-1) |
 | Vor Release | Langlauf mit Coverage-Auswertung | mehrere Stunden |
 
-Die Fuzz-Jobs kommen in `ci.yml` hinzu, sobald das erste Target existiert (WP-M0-QA legt nur die Struktur an).
+Die Jobs stehen in [`.github/workflows/fuzz.yml`](../../.github/workflows/fuzz.yml) (Trigger: `pull_request`,
+`schedule` täglich 02:17 UTC, `workflow_dispatch` mit Eingabe `minutes`):
+
+| Job | Inhalt |
+|---|---|
+| `targets` | Prüft, dass Matrix, `[[bin]]`-Liste in `fuzz/Cargo.toml` und `fuzz/fuzz_targets/` übereinstimmen (ein neues Target kann nicht vergessen werden). |
+| `rust` (Matrix je Target) | `dtolnay/rust-toolchain@nightly`, `cargo install cargo-fuzz`, dann `fuzz/tools/smoke.sh <target>`: liest Regressionen und Seed-Korpus, schreibt neue Eingaben in ein Arbeitsverzeichnis (der Git-Korpus bleibt unverändert), `-timeout=5 -rss_limit_mb=2048`. Nachts zusätzlich: Korpus aus dem Actions-Cache, danach `cargo fuzz cmin` und Speichern. |
+| `cpp` | `make fuzz-smoke-cpp`: baut `fuzz_air_sniff` mit clang (`-DAIR2SPIRV_BUILD_FUZZERS=ON`, ASan/UBSan) und lässt es laufen; nachts mit Cache und `-merge=1`. |
+
+Ein Absturz, Timeout oder OOM lässt den Job scheitern; `fuzz/artifacts/<target>/` wird 30 Tage als Artefakt
+(`fuzz-artifacts-<target>`) hochgeladen. In der CI ist `FUZZ_REQUIRED=1` gesetzt: fehlende Werkzeuge sind ein Fehler,
+kein stilles Überspringen. Lokal: `make fuzz-smoke` (überspringt sauber, wenn nightly/cargo-fuzz bzw. clang fehlen),
+`make fuzz-smoke FUZZ_TIME=10`, `make fuzz-smoke-rust FUZZ_TARGETS=fuzz_mmio_bus`. Der ASan/UBSan-Build der
+normalen C++-Tests läuft in `ci.yml` als eigener Matrixeintrag (`clang (ASan+UBSan)`).
 
 ### 5.5 Fund-Prozess
 
@@ -357,8 +404,11 @@ Grundsatz: **Was nicht läuft, wird sichtbar übersprungen**, nie grün gemeldet
 * **Negativ-Tests:** abgeschnittene Container, unbekannte Records/Intrinsics, zu neue Bitcode-Version. Erwartet:
   Fehlerstatus mit Beschreibung (ADR-0007: Unbekanntes wird *gemeldet*, nie still verworfen).
 * **Ende-zu-Ende:** SPIR-V → `ritsu-gpu-host` → Lavapipe → Bildvergleich (§6.3), sobald beide Seiten stehen.
-* **Sanitizer:** ASan/UBSan-Konfiguration des C++-Tests (Clang) in der CI-Matrix, sobald Parser existieren.
-* **Format:** `make cpp-fmt-check` (clang-format) ist Teil der CI; `clang-tidy` ab Einführung einer `.clang-tidy`.
+* **Sanitizer:** ASan/UBSan-Konfiguration des C++-Tests (Clang, `-DAIR2SPIRV_SANITIZE=ON`) ist ein Eintrag der
+  C++-Matrix in `ci.yml`; das 60-s-Smoke-Fuzzing von `fuzz_air_sniff` läuft in `fuzz.yml` (§5.4).
+* **Format:** `make cpp-fmt-check` (clang-format) ist Teil der CI; `clang-tidy` (von [ADR-0003](../adr/0003-languages.md) verlangt) fehlt noch.
+  Folgearbeit **WP-QA-07 clang-tidy**: `.clang-tidy` in `compiler/` anlegen, `make cpp-tidy` und CI-Schritt
+  ergänzen; bewusst nicht Teil von WP-QA-01, weil die Shader-Spur dort parallel arbeitet.
 
 ## 8. Benchmarks (`bench/`)
 

@@ -5,12 +5,19 @@
 //! the value. The bus finds the device that owns the address and forwards the access with
 //! an offset relative to the device's base.
 //!
+//! Device regions must be based on a multiple of [`MIN_REGION_ALIGN`] (8 bytes, the widest
+//! access). Alignment of an access is checked on the offset inside the region, so a device
+//! never sees a misaligned offset (see [`MmioDevice`]).
+//!
 //! The bus never panics on guest-controlled input. Unmapped, misaligned or region-crossing
 //! accesses are reported as [`MmioError`]; the caller decides how that surfaces in the guest
 //! (usually a synchronous external abort, or RAZ/WI for known holes).
 
 use std::collections::BTreeMap;
 use std::fmt;
+
+/// Required alignment of a region base in bytes (the widest access, [`AccessSize::B8`]).
+pub const MIN_REGION_ALIGN: u64 = 8;
 
 /// Width of a single MMIO access in bytes.
 ///
@@ -121,7 +128,10 @@ impl From<MmioError> for ritsu_core::Error {
 /// A memory-mapped device.
 ///
 /// `offset` is relative to the base the device was registered at and is guaranteed by
-/// [`MmioBus`] to lie inside the registered length and to be naturally aligned for `size`.
+/// [`MmioBus`] to lie inside the registered length and to be naturally aligned for `size`
+/// (`offset % size.bytes() == 0`). The bus enforces this twice: [`MmioBus::register`] only
+/// accepts bases that are multiples of [`MIN_REGION_ALIGN`], and every access is checked
+/// for alignment on the offset inside the region (not on the absolute address).
 /// Devices must still validate that the offset names a register they implement.
 ///
 /// Devices are `Send` because vCPU threads share the bus behind a lock.
@@ -165,6 +175,14 @@ pub enum BusError {
         base: u64,
         /// Region length.
         len: u64,
+    },
+    /// The region base is not a multiple of [`MIN_REGION_ALIGN`].
+    #[error("device {name:?}: region base {base:#x} is not aligned to {MIN_REGION_ALIGN} bytes")]
+    MisalignedBase {
+        /// Name of the device being registered.
+        name: String,
+        /// Region base.
+        base: u64,
     },
     /// The region overlaps an already registered one.
     #[error("device {name:?}: region {base:#x}+{len:#x} overlaps {other:?}")]
@@ -228,6 +246,8 @@ impl MmioBus {
     ///
     /// * [`BusError::ZeroLength`] if `len == 0`,
     /// * [`BusError::Overflow`] if `base + len` overflows `u64`,
+    /// * [`BusError::MisalignedBase`] if `base` is not a multiple of [`MIN_REGION_ALIGN`]
+    ///   (checked after zero length and overflow, before overlap),
     /// * [`BusError::Overlap`] if the range intersects an existing region.
     pub fn register(
         &mut self,
@@ -242,6 +262,9 @@ impl MmioBus {
         let Some(end) = base.checked_add(len) else {
             return Err(BusError::Overflow { name, base, len });
         };
+        if !base.is_multiple_of(MIN_REGION_ALIGN) {
+            return Err(BusError::MisalignedBase { name, base });
+        }
         // Predecessor: the region with the greatest base <= `base`.
         // (`pbase + p.len` cannot overflow: it was checked at registration.)
         if let Some((pbase, p)) = self.regions.range(..=base).next_back()
@@ -286,7 +309,8 @@ impl MmioBus {
         if offset >= region.len {
             return Err(unmapped);
         }
-        if !addr.is_multiple_of(bytes) {
+        // Alignment is a property of the offset the device sees, not of the absolute address.
+        if !offset.is_multiple_of(bytes) {
             return Err(MmioError::Misaligned { addr, size: bytes });
         }
         // `checked_add` keeps this overflow-free even for regions that end near `u64::MAX`.
@@ -492,6 +516,94 @@ mod tests {
             bus.read(0x1004, AccessSize::B4),
             Err(MmioError::CrossesRegionEnd { .. })
         ));
+    }
+
+    #[test]
+    fn rejects_misaligned_base() {
+        let mut bus = MmioBus::new();
+        for base in [0x1, 0x2, 0x4, 0x7, 0x1001, 0x1004, u64::MAX - 0x1008] {
+            assert!(
+                matches!(
+                    bus.register(base, 0x1000, Scratch::boxed("a")),
+                    Err(BusError::MisalignedBase { base: b, .. }) if b == base
+                ),
+                "{base:#x}"
+            );
+        }
+        // Precedence: zero length and overflow are reported before the base alignment.
+        assert!(matches!(
+            bus.register(0x1, 0, Scratch::boxed("a")),
+            Err(BusError::ZeroLength { .. })
+        ));
+        assert!(matches!(
+            bus.register(u64::MAX, 2, Scratch::boxed("a")),
+            Err(BusError::Overflow { .. })
+        ));
+        assert!(bus.is_empty());
+        // Any multiple of 8 is fine.
+        bus.register(0x8, 0x10, Scratch::boxed("b")).unwrap();
+        bus.register(0x1018, 0x1, Scratch::boxed("c")).unwrap();
+        assert_eq!(bus.len(), 2);
+    }
+
+    /// Reproducer from `fuzz_mmio_bus` (regression `unaligned_base_offset_misaligned`):
+    /// a region at base 0x1 used to hand `read(0x4, B4)` to the device as offset 3.
+    #[test]
+    fn fuzz_reproducer_unaligned_base_is_refused() {
+        let mut bus = MmioBus::new();
+        assert!(matches!(
+            bus.register(0x1, 0x1000, Scratch::boxed("probe")),
+            Err(BusError::MisalignedBase { base: 0x1, .. })
+        ));
+        // The access therefore never reaches a device.
+        assert!(matches!(
+            bus.read(0x4, AccessSize::B4),
+            Err(MmioError::Unmapped { .. })
+        ));
+    }
+
+    /// Defence in depth: even if a misaligned base ever got into the map (registration rule
+    /// relaxed), the alignment check works on the offset and the device never sees a
+    /// misaligned one.
+    #[test]
+    fn alignment_is_checked_on_offset_not_address() {
+        struct Recorder(Vec<(u64, u64)>);
+        impl MmioDevice for Recorder {
+            fn name(&self) -> &str {
+                "rec"
+            }
+            fn read(&mut self, offset: u64, size: AccessSize) -> Result<u64, MmioError> {
+                self.0.push((offset, size.bytes()));
+                assert!(offset.is_multiple_of(size.bytes()));
+                Ok(0)
+            }
+            fn write(&mut self, o: u64, s: AccessSize, _v: u64) -> Result<(), MmioError> {
+                self.read(o, s).map(|_| ())
+            }
+        }
+        let mut bus = MmioBus::new();
+        // Bypass `register` to simulate a relaxed rule.
+        bus.regions.insert(
+            0x1,
+            Region {
+                len: 0x1000,
+                device: Box::new(Recorder(Vec::new())),
+            },
+        );
+        // Address 0x4 is 4-aligned but offset 3 is not: refused, device not called.
+        assert_eq!(
+            bus.read(0x4, AccessSize::B4),
+            Err(MmioError::Misaligned { addr: 0x4, size: 4 })
+        );
+        assert_eq!(
+            bus.write(0x4, AccessSize::B4, 0),
+            Err(MmioError::Misaligned { addr: 0x4, size: 4 })
+        );
+        // Address 0x5 is misaligned for B4 by address, but offset 4 is aligned: accepted.
+        assert!(bus.read(0x5, AccessSize::B4).is_ok());
+        assert!(bus.write(0x9, AccessSize::B8, 0).is_ok());
+        assert!(bus.read(0x2, AccessSize::B2).is_err());
+        assert!(bus.read(0x3, AccessSize::B2).is_ok());
     }
 
     #[test]

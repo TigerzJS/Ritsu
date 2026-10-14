@@ -76,7 +76,13 @@
    "wp": "WP-DBT-01",
    "summary": "Semantik einmalig als Sem-Trait, T0 über Concrete, IR-Builder + Verifier; 64 Tests; TLB clean-room neu formuliert",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-QA-01",
+   "summary": "Fuzzing aller Gast-Parser in CI; erster Fund (MMIO-Ausrichtung) sofort per WP-PLAT-20 behoben",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 13:10"
+ "updatedAt": "2026-10-14 13:45"
 }

@@ -9,9 +9,10 @@ CLANG_FORMAT ?= clang-format
 CPP_SRC_DIR  ?= compiler/air2spirv
 CPP_BUILD_DIR ?= build/air2spirv
 CPP_BUILD_TYPE ?= RelWithDebInfo
+CPP_CMAKE_ARGS ?=
 # Set CC/CXX in the environment to pick a compiler, e.g. CC=clang CXX=clang++ make cpp
 
-.PHONY: help fmt fmt-check lint test-rust cpp cpp-fmt-check graph links status test check clean
+.PHONY: help fmt fmt-check lint test-rust cpp cpp-fmt-check fuzz-smoke fuzz-smoke-rust fuzz-smoke-cpp graph links status test check clean
 
 help:
 	@echo "Ritsu make targets:"
@@ -22,11 +23,13 @@ help:
 	@echo "  test-rust      cargo test --workspace"
 	@echo "  cpp            configure, build and ctest compiler/air2spirv (Ninja, build/air2spirv)"
 	@echo "  cpp-fmt-check  clang-format --dry-run --Werror on compiler/ C++ sources"
+	@echo "  fuzz-smoke     60 s per fuzz target, Rust (cargo-fuzz) + C++ (libFuzzer); FUZZ_TIME=<s>; skips if tools are missing"
+	@echo "  fuzz-smoke-rust / fuzz-smoke-cpp   the two halves of fuzz-smoke"
 	@echo "  graph          check the crate dependency rule (tools/check_crate_graph.py)"
 	@echo "  links          check relative links in *.md files (tools/check_md_links.py)"
 	@echo "  status         validate status/*.json behind the live roadmap page"
 	@echo "  test           test-rust + cpp"
-	@echo "  check          fmt-check + lint + test + graph + links + status (must be green before commit)"
+	@echo "  check          fmt-check + lint + test + cpp-fmt-check + graph + links + status (must be green before commit)"
 	@echo "  clean          cargo clean and remove build/"
 
 .DEFAULT_GOAL := help
@@ -52,7 +55,7 @@ test-rust:
 cpp:
 	@if [ -f $(CPP_SRC_DIR)/CMakeLists.txt ]; then \
 		set -e; \
-		$(CMAKE) -S $(CPP_SRC_DIR) -B $(CPP_BUILD_DIR) -G Ninja -DCMAKE_BUILD_TYPE=$(CPP_BUILD_TYPE); \
+		$(CMAKE) -S $(CPP_SRC_DIR) -B $(CPP_BUILD_DIR) -G Ninja -DCMAKE_BUILD_TYPE=$(CPP_BUILD_TYPE) $(CPP_CMAKE_ARGS); \
 		$(CMAKE) --build $(CPP_BUILD_DIR); \
 		$(CTEST) --test-dir $(CPP_BUILD_DIR) --output-on-failure; \
 	else \
@@ -71,6 +74,17 @@ cpp-fmt-check:
 		fi; \
 	fi
 
+# Not part of `check` (needs nightly + cargo-fuzz / clang and takes minutes); CI runs it on every PR.
+# FUZZ_TIME=<seconds> per target, e.g. `make fuzz-smoke FUZZ_TIME=10`; FUZZ_TARGETS=<names> selects
+# Rust targets. Each part skips cleanly when its tools are missing (FUZZ_REQUIRED=1: fail instead).
+fuzz-smoke: fuzz-smoke-rust fuzz-smoke-cpp
+
+fuzz-smoke-rust:
+	sh fuzz/tools/smoke.sh $(FUZZ_TARGETS)
+
+fuzz-smoke-cpp:
+	sh fuzz/tools/smoke_cpp.sh
+
 graph:
 	$(PYTHON) tools/check_crate_graph.py
 
@@ -87,6 +101,7 @@ check:
 	$(MAKE) fmt-check
 	$(MAKE) lint
 	$(MAKE) test
+	$(MAKE) cpp-fmt-check
 	$(MAKE) graph
 	$(MAKE) links
 	$(MAKE) status

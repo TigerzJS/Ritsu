@@ -1306,7 +1306,7 @@
      "name": "WP-PLAT-16",
      "title": "Fuzz-Ziele aller Geräte-Parser",
      "ms": "M3",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "01/02, 09/10",
      "accept": "",
@@ -1348,6 +1348,18 @@
      "accept": "",
      "owner": "platform-engineer",
      "weight": 2
+    },
+    {
+     "id": "WP-PLAT-20",
+     "name": "WP-PLAT-20",
+     "title": "MmioBus: Basis 8-Byte-ausgerichtet, Ausrichtung am Offset (Fuzz-Befund)",
+     "ms": "M1",
+     "status": "done",
+     "risk": false,
+     "deps": "",
+     "accept": "",
+     "owner": "platform-engineer",
+     "weight": 1
     }
    ]
   },
@@ -1520,12 +1532,13 @@
      "name": "WP-QA-01",
      "title": "Fuzz-Jobs in CI (PR-Smoke 60 s, nächtlich)",
      "ms": "M1",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "",
      "accept": "",
      "owner": "test-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "8 Rust-Targets + C++-Target, PR-Smoke 60 s, nächtlich 30 min; fand MMIO-Ausrichtungsfehler (WP-PLAT-20)."
     },
     {
      "id": "WP-QA-02",
@@ -1585,6 +1598,30 @@
      "deps": "",
      "accept": "",
      "owner": "docs-writer",
+     "weight": 1
+    },
+    {
+     "id": "WP-QA-08",
+     "name": "WP-QA-08",
+     "title": "Fuzz-Regressionen in cargo test abspielen",
+     "ms": "M1",
+     "status": "open",
+     "risk": false,
+     "deps": "QA-01",
+     "accept": "",
+     "owner": "test-engineer",
+     "weight": 1
+    },
+    {
+     "id": "WP-QA-07",
+     "name": "WP-QA-07",
+     "title": "clang-tidy für compiler/ (ADR-0003)",
+     "ms": "M2",
+     "status": "open",
+     "risk": false,
+     "deps": "",
+     "accept": "",
+     "owner": "test-engineer",
      "weight": 1
     }
    ]

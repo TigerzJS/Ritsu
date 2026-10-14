@@ -32,4 +32,35 @@ cargo +nightly fuzz tmin fuzz_virtqueue_walk <artifact>             # Fund minim
 2. Ursache an der Stelle beheben, an der Gast-Daten eintreten (fehlende Validierung), nicht das Symptom.
 3. Test grün, Target läuft 5 Minuten ohne neuen Fund, Commit `fix(<crate>): …`.
 
-Stand M0: noch keine Targets vorhanden; das Verzeichnis enthält nur dieses README.
+## Targets (Stand WP-QA-01)
+
+| Target | Parser | Eingabe |
+|---|---|---|
+| `fuzz_gpu_proto_decode` | `ritsu_gpu_proto::decode_stream` | rohe Bytes; zusätzlich Fixpunkt-Roundtrip des Encoders |
+| `fuzz_gpu_proto_hello` | `decode_hello_stream`, `decode_session_stream` | rohe Bytes |
+| `fuzz_gpu_proto_reply` | `decode_reply_stream` | rohe Bytes; Re-Encode-Roundtrip |
+| `fuzz_gpu_host_session` | `ritsu_gpu_host::frontend_g::GuestSession<NullBackend>` | Optionen + Folge von Roh-Strömen nach gültigem HELLO; Antwortstrom muss immer dekodieren |
+| `fuzz_virtqueue_walk` | `ritsu_virtio::queue::Queue` (`pop`, `push_used`, `should_notify`) | Byte-Format laut Kopf der Datei: Queue-Konfiguration + Folge von Gast-Schreibzugriffen und Geräteoperationen |
+| `fuzz_mmio_bus` | `ritsu_platform::mmio::MmioBus` | Byte-Format laut Kopf der Datei: Registrierungen und Zugriffe, geprüft gegen ein Regionsmodell |
+| `fuzz_aarch64_decode` | `ritsu_dbt::decode` | rohe Bytes als 32-Bit-Wörter |
+| `fuzz_t0_step` | `ritsu_dbt::step` (T0) | 8 Byte Zustands-Header + Befehlswörter im RAM, max. 512 Schritte |
+
+C++: `fuzz_air_sniff` in `compiler/air2spirv/fuzz/` (wird von `fuzz/tools/smoke_cpp.sh` gebaut und gestartet).
+
+## Hilfsskripte
+
+| Skript | Zweck |
+|---|---|
+| `tools/gen_seeds.py` | erzeugt den Startkorpus `corpus/<target>/` deterministisch |
+| `tools/smoke.sh` | zeitbegrenzter Lauf der Rust-Targets (`make fuzz-smoke-rust`), Korpus bleibt unverändert |
+| `tools/smoke_cpp.sh` | Build und zeitbegrenzter Lauf von `fuzz_air_sniff` (`make fuzz-smoke-cpp`) |
+
+Neue Fuzz-Eingaben werden nie in `corpus/` geschrieben: `smoke.sh` nutzt ein Arbeitsverzeichnis (`FUZZ_WORK`).
+Beim direkten Aufruf `cargo fuzz run <target>` ohne Pfad schreibt cargo-fuzz dagegen in `fuzz/corpus/<target>/`;
+dann neue Dateien nicht einchecken, sondern erst mit `cmin` auswählen (`docs/process/testing.md §5.3`).
+
+## Offene Funde
+
+Siehe `regressions/<target>/`: jede Datei dort ist ein bekannter, noch nicht (oder gerade behobener) Fund, der von
+`smoke.sh` bei jedem Lauf zuerst abgespielt wird. Solange ein Fund offen ist, scheitert der Smoke-Job des Targets
+absichtlich (CLAUDE.md: kein Überspringen, um CI grün zu bekommen).

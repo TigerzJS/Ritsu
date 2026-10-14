@@ -200,9 +200,15 @@ Gast-Load/Store ─► DBT: SoftMMU-Translate (Stage-1) ─► GPA
             Ergebnis ─► Zielregister  │  Fehler ─► Gast-Exception (externer Abort)
 ```
 
-* **Implementiert:** `MmioBus` mit `register(base, len, device)`; lehnt Länge 0, Überlauf (`base+len`) und Überlappung ab
-  (Vorgänger- und Nachfolger-Prüfung). Zugriffe werden gemaskt (`AccessSize::mask`), **natürlich ausgerichtet**
-  verlangt (ARM-Device-Speicher: fehlausgerichtet → Alignment-Fault) und dürfen die Region nicht überschreiten.
+* **Implementiert:** `MmioBus` mit `register(base, len, device)`; lehnt Länge 0, Überlauf (`base+len`),
+  eine nicht auf 8 Byte (`MIN_REGION_ALIGN`) ausgerichtete Basis (`BusError::MisalignedBase`) und Überlappung ab
+  (Vorgänger- und Nachfolger-Prüfung; Reihenfolge: Länge, Überlauf, Basis-Ausrichtung, Überlappung). Zugriffe werden gemaskt
+  (`AccessSize::mask`), **natürlich ausgerichtet** verlangt (ARM-Device-Speicher: fehlausgerichtet → Alignment-Fault) und
+  dürfen die Region nicht überschreiten.
+* **Ausrichtungs-Zusicherung an Geräte:** `MmioDevice::read/write` erhalten nur Offsets mit `offset % size == 0`.
+  Zwei unabhängige Sicherungen: (a) Basen sind Vielfache von 8, (b) die Ausrichtung wird zur Zugriffszeit am **Offset
+  innerhalb der Region** geprüft, nicht an der absoluten Adresse (Fuzz-Befund `unaligned_base_offset_misaligned`: Basis
+  `0x1`, `read(0x4, B4)` lieferte Offset 3). Der Fehler `MmioError::Misaligned` meldet weiterhin die absolute Adresse.
 * **Nicht Aufgabe des Busses:** Zerlegen von `LDP/STP`, SIMD-Zugriffen und Zugriffen über Seitengrenzen in 1/2/4/8-Byte-Zugriffe
   macht der DBT; Memory-Attribute (nGnRnE …) und Ordnung ebenso.
 * **Fehlerpolitik:** `MmioError` → der Aufrufer entscheidet: *Standard* = synchroner externer Abort (`DFSC 0x10`) in den Gast;
