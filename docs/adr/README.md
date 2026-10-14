@@ -21,3 +21,4 @@ Regeln:
 | [0006](0006-dbt-tiered-design.md) | DBT ist mehrstufig (Interpreter, Basis-JIT, Cranelift-JIT) mit persistentem Cache | Accepted |
 | [0007](0007-shader-translation-on-host.md) | Shader werden auf dem Host von AIR nach SPIR-V übersetzt | Accepted |
 | [0008](0008-clean-room.md) | Reverse Engineering nur im Clean-Room-Verfahren | Accepted |
+| [0009](0009-shared-guest-ram.md) | Gast-RAM wird ein geteiltes memfd-Mapping (`GuestRam`) mit `&self`-Zugriff; `unsafe` nur in `ritsu_mem::host_map` | **Proposed** |

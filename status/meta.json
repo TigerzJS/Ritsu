@@ -88,7 +88,13 @@
    "wp": "WP-GPU-01",
    "summary": "GPU-Protokoll v1: Aushandlung + Antwortkanal; stiller Teil-Commit (M0-Review) per Opcode-Klassen ausgeschlossen. M0 abgeschlossen.",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-ARCH-01",
+   "summary": "Sem-Review: trägt mit Änderungen (P1 an WP-DBT-02); ADR-0009 Gastspeicher als Proposed – wartet auf deine Freigabe (O-13)",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 14:05"
+ "updatedAt": "2026-10-14 14:30"
 }

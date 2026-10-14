@@ -46,6 +46,9 @@ nicht gegen einen echten Gast.
 | WP-ARCH-03 | ADR „Gast-CPU-Feature-Baseline“: macOS wird vermutlich für eine feste CPU-Baseline (M1) kompiliert und nutzt deren Befehle ohne Blick in die ID-Register. Das widerspricht der Konsequenz „minimaler Feature-Satz“ aus ADR-0004 → neuer ADR mit ISA-Zensus (WP-DBT-19) als Grundlage | architect + dbt-engineer | M3 |
 | WP-ARCH-04 | ADR „Shader-Compiler-Isolation“: LLVM ist nicht gegen feindliches Bitcode gehärtet, und Fatal Errors lassen sich nicht abfangen → `air2spirv` in einem sandboxed Worker-Prozess statt im Host-Prozess (Q-SEC-1) | architect | M4 |
 | WP-ARCH-05 | ADR „Bindungsmodell“: Argument-Tabelle + Bindless-Heaps vs. Descriptor-Sets, gemeinsam für gpu.md und shader-compiler.md | architect + gpu-engineer + shader-compiler-engineer | WP-SC-12 |
+| WP-MEM-01 | `GuestMemory` v2 nach ADR-0009 (nach Freigabe O-13) | dbt-engineer | M3 |
+| WP-MEM-02 ★ | `GuestRam` (memfd + `host_map`, unsafe-Kern) nach ADR-0009 | dbt-engineer | M3 |
+| WP-PLAT-21 | virtio-Speicherordnung nach ADR-0009 | platform-engineer | M3 |
 | WP-ARCH-02 | Schnittstelle DBT ↔ Plattform: Systemregister-Hooks (`MRS`/`MSR` für GIC-ICC), `HVC`/`SMC` (PSCI), `WFI`/`WFE`-Parken, IRQ-Pending-Flag und vCPU-Kick | architect | M3 |
 
 ## Spikes (vor den abhängigen Meilensteinen)

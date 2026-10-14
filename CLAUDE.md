@@ -105,7 +105,7 @@ Bericht:         Format aus §2.2
 5. **Niemals still falsch.** Wenn ein Metal-Feature oder ein Befehl nicht unterstützt wird: Gast-Exception, ehrlich
    reduzierte Feature-Meldung oder `Error::Unimplemented`. Nie still ein falsches Ergebnis liefern.
 6. **ADRs sind Gesetz.** `Accepted`-ADRs werden nicht editiert, sondern durch neue ersetzt. Auf `Proposed`-ADRs
-   (aktuell ADR-0005) baut niemand Irreversibles.
+   (siehe Status im [ADR-Index](docs/adr/README.md)) baut niemand Irreversibles.
 7. **Keine Abhängigkeitszyklen.** Die Crate-Grafik in ARCHITECTURE.md §4 ist verbindlich. Neue externe
    Abhängigkeiten nur über `[workspace.dependencies]` und mit Begründung im Bericht.
 8. **Messen statt raten.** Leistungsbehauptungen nur mit Benchmark aus `bench/` und Vorher/Nachher-Zahlen.

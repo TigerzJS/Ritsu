@@ -103,19 +103,20 @@
      "name": "WP-ARCH-01",
      "title": "GuestMemory für parallele vCPU-/Geräte-Threads (host_map, &self)",
      "ms": "M1",
-     "status": "open",
+     "status": "blocked",
      "risk": true,
      "deps": "",
      "accept": "",
      "owner": "architect",
-     "weight": 2
+     "weight": 2,
+     "note": "ADR-0009 (Proposed) geschrieben; wartet auf Freigabe durch den Projektinhaber (O-13)."
     },
     {
      "id": "WP-ARCH-02",
      "name": "WP-ARCH-02",
      "title": "Schnittstelle DBT↔Plattform: Sysreg-Hooks, HVC/SMC, WFI, IRQ-Kick",
      "ms": "M3",
-     "status": "open",
+     "status": "wip",
      "risk": false,
      "deps": "",
      "accept": "",
@@ -157,6 +158,32 @@
      "accept": "",
      "owner": "architect",
      "weight": 1
+    },
+    {
+     "id": "WP-MEM-01",
+     "name": "WP-MEM-01",
+     "title": "GuestMemory v2 (&self, Ordnung, CAS) nach ADR-0009",
+     "ms": "M3",
+     "status": "blocked",
+     "risk": false,
+     "deps": "O-13",
+     "accept": "",
+     "owner": "dbt-engineer",
+     "weight": 1,
+     "note": "wartet auf Freigabe ADR-0009"
+    },
+    {
+     "id": "WP-MEM-02",
+     "name": "WP-MEM-02",
+     "title": "GuestRam (memfd + host_map, unsafe-Kern) nach ADR-0009",
+     "ms": "M3",
+     "status": "blocked",
+     "risk": true,
+     "deps": "WP-MEM-01, O-13",
+     "accept": "unsafe-Review",
+     "owner": "dbt-engineer",
+     "weight": 2,
+     "note": "wartet auf Freigabe ADR-0009"
     }
    ]
   },
@@ -1361,6 +1388,19 @@
      "accept": "",
      "owner": "platform-engineer",
      "weight": 1
+    },
+    {
+     "id": "WP-PLAT-21",
+     "name": "WP-PLAT-21",
+     "title": "virtio-Speicherordnung nach ADR-0009",
+     "ms": "M3",
+     "status": "blocked",
+     "risk": false,
+     "deps": "WP-MEM-01",
+     "accept": "",
+     "owner": "platform-engineer",
+     "weight": 1,
+     "note": "wartet auf Freigabe ADR-0009"
     }
    ]
   },
