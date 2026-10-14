@@ -8,7 +8,8 @@
 use core::num::NonZeroU32;
 
 use crate::error::ProtoError;
-use crate::reader::Cursor;
+use crate::negotiate::{Features, Hello};
+use crate::reader::Dec;
 use crate::wire::{Opcode, Record};
 
 /// Maximum number of colour attachments per render pass (Metal limit on Apple GPUs).
@@ -201,6 +202,9 @@ pub struct EventValue {
 pub enum Command<'a> {
     /// See [`Opcode::Nop`].
     Nop,
+    /// See [`Opcode::Hello`]. Only valid as the single record of the first stream of a
+    /// session (see [`crate::decode_hello_stream`]).
+    Hello(Hello),
     /// See [`Opcode::CreateBuffer`].
     CreateBuffer(CreateBuffer),
     /// See [`Opcode::DestroyBuffer`].
@@ -242,51 +246,6 @@ pub enum Command<'a> {
     },
 }
 
-/// Payload decoding context: turns `None` from the cursor into a positioned error.
-struct Dec<'a> {
-    cur: Cursor<'a>,
-    offset: usize,
-}
-
-impl<'a> Dec<'a> {
-    fn err(&self, field: &'static str) -> ProtoError {
-        ProtoError::InvalidField {
-            offset: self.offset,
-            field,
-        }
-    }
-    fn u8(&mut self, f: &'static str) -> Result<u8, ProtoError> {
-        self.cur.u8().ok_or_else(|| self.err(f))
-    }
-    fn u16(&mut self, f: &'static str) -> Result<u16, ProtoError> {
-        self.cur.u16().ok_or_else(|| self.err(f))
-    }
-    fn u32(&mut self, f: &'static str) -> Result<u32, ProtoError> {
-        self.cur.u32().ok_or_else(|| self.err(f))
-    }
-    fn u64(&mut self, f: &'static str) -> Result<u64, ProtoError> {
-        self.cur.u64().ok_or_else(|| self.err(f))
-    }
-    fn f32(&mut self, f: &'static str) -> Result<f32, ProtoError> {
-        self.cur.f32().ok_or_else(|| self.err(f))
-    }
-    fn id(&mut self, f: &'static str) -> Result<ObjectId, ProtoError> {
-        let raw = self.u32(f)?;
-        ObjectId::new(raw).ok_or_else(|| self.err(f))
-    }
-    /// Reads `N` reserved bytes that must be zero.
-    fn reserved(&mut self, n: usize) -> Result<(), ProtoError> {
-        for _ in 0..n {
-            // Record offset + record header + position inside payload.
-            let at = self.offset + crate::RECORD_HEADER_LEN + self.cur.pos();
-            if self.u8("reserved")? != 0 {
-                return Err(ProtoError::ReservedNonZero { offset: at });
-            }
-        }
-        Ok(())
-    }
-}
-
 /// Size of one colour attachment on the wire.
 const ATTACHMENT_LEN: usize = 24;
 
@@ -296,6 +255,7 @@ impl<'a> Command<'a> {
     pub const fn opcode(&self) -> Opcode {
         match self {
             Self::Nop => Opcode::Nop,
+            Self::Hello(_) => Opcode::Hello,
             Self::CreateBuffer(_) => Opcode::CreateBuffer,
             Self::DestroyBuffer { .. } => Opcode::DestroyBuffer,
             Self::WriteBuffer(_) => Opcode::WriteBuffer,
@@ -323,14 +283,29 @@ impl<'a> Command<'a> {
     ///
     /// [`ProtoError::InvalidField`] or [`ProtoError::ReservedNonZero`] for wire-invalid payloads.
     pub fn decode(record: &Record<'a>) -> Result<Self, ProtoError> {
-        let mut d = Dec {
-            cur: Cursor::new(record.payload),
-            offset: record.offset,
-        };
+        let mut d = Dec::new(record.payload, record.offset);
         let cmd = match record.opcode {
             Opcode::Nop => {
                 d.cur.rest();
                 Self::Nop
+            }
+            Opcode::Hello => {
+                let min_version = d.u16("min_version")?;
+                let max_version = d.u16("max_version")?;
+                d.reserved(4)?;
+                let features = Features::from_bits_retain(d.u64("features")?);
+                // Version 0 does not exist; an empty range is meaningless.
+                if min_version == 0 {
+                    return Err(d.err("min_version"));
+                }
+                if max_version < min_version {
+                    return Err(d.err("max_version"));
+                }
+                Self::Hello(Hello {
+                    min_version,
+                    max_version,
+                    features,
+                })
             }
             Opcode::CreateBuffer => {
                 let buffer_id = d.id("buffer_id")?;
@@ -430,9 +405,7 @@ impl<'a> Command<'a> {
         };
         // Exact-length opcodes are fully consumed by construction; this guards against a
         // mismatch between `payload_len` rules and the field lists above.
-        if !d.cur.rest().is_empty() {
-            return Err(d.err("payload_tail"));
-        }
+        d.finish()?;
         Ok(cmd)
     }
 
@@ -440,6 +413,12 @@ impl<'a> Command<'a> {
     pub fn encode_payload(&self, out: &mut Vec<u8>) {
         match self {
             Self::Nop | Self::EndRenderPass | Self::BeginComputePass | Self::EndComputePass => {}
+            Self::Hello(h) => {
+                out.extend_from_slice(&h.min_version.to_le_bytes());
+                out.extend_from_slice(&h.max_version.to_le_bytes());
+                out.extend_from_slice(&[0; 4]);
+                out.extend_from_slice(&h.features.bits().to_le_bytes());
+            }
             Self::CreateBuffer(c) => {
                 out.extend_from_slice(&c.buffer_id.get().to_le_bytes());
                 out.extend_from_slice(&[c.storage_mode, c.cpu_cache_mode, c.hazard_tracking, 0]);
@@ -534,10 +513,7 @@ fn decode_render_pass(d: &mut Dec<'_>) -> Result<BeginRenderPass, ProtoError> {
     if count.checked_mul(ATTACHMENT_LEN) != Some(tail.len()) {
         return Err(d.err("color_attachments"));
     }
-    let mut ad = Dec {
-        cur: Cursor::new(tail),
-        offset: d.offset,
-    };
+    let mut ad = Dec::new(tail, d.offset);
     let mut attachments = [None; MAX_COLOR_ATTACHMENTS];
     for slot in attachments.iter_mut().take(count) {
         let texture_id = ad.id("texture_id")?;

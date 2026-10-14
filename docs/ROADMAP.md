@@ -12,8 +12,8 @@ Detaillierte Work Packages pro Subsystem stehen in den Subsystem-Dokumenten:
 
 | M | Name | Abnahmekriterium | Hauptsächlich | Status |
 |---|---|---|---|---|
-| M0 | Fundament | Struktur, ADRs, CI grün, Skelette mit Tests, Multi-Agent-Prozess dokumentiert | alle | **in Arbeit** |
-| M1 | Erster Befehl | Ein statisch gelinktes aarch64-**Linux**-ELF („hello world“, dann eine Testsuite) läuft im User-Mode über T0. Differenztests gegen arm64-CI-Runner sind grün | DBT | offen |
+| M0 | Fundament | Struktur, ADRs, CI grün, Skelette mit Tests, Multi-Agent-Prozess dokumentiert | alle | **erledigt** |
+| M1 | Erster Befehl | Ein statisch gelinktes aarch64-**Linux**-ELF („hello world“, dann eine Testsuite) läuft im User-Mode über T0. Differenztests gegen arm64-CI-Runner sind grün | DBT | **in Arbeit** |
 | M2 | JIT | T1 läuft und ist differenzgetestet. Erste Leistungszahlen für Q-PERF-1 (User-Mode-Benchmarks) | DBT | offen |
 | M3 | Kernel spricht | vmapple-Plattform, System-Mode-DBT (EL1, MMU, Exceptions, GIC, Timer). XNU gibt Boot-Log über PL011 aus ★ | Plattform, DBT | offen |
 | M4 | Erstes Dreieck | Metal-Dreieck (eigene Test-App im Gast) wird auf RTX 4050 **und** Iris Xe gerendert. ADR-0005 entschieden ★ | GPU, Shader | offen |
@@ -26,7 +26,7 @@ M1/M2 und M4 sind absichtlich **voneinander unabhängig**: DBT und GPU können p
 vorangetrieben werden. Die GPU-Arbeit vor M3 läuft gegen Host-seitige Tests (lavapipe, synthetische Befehlsströme),
 nicht gegen einen echten Gast.
 
-## M0 – Fundament (aktuell)
+## M0 – Fundament (erledigt)
 
 | WP | Inhalt | Agent | Status |
 |---|---|---|---|

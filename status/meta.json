@@ -1,18 +1,18 @@
 {
  "project": "Ritsu",
  "goal": "M1 „Erster Befehl“: statisches aarch64-Linux-ELF läuft über T0, Differenztests grün",
- "goal_detail": "Durchgehende Pipeline mit 4 parallelen Spuren (docs/process/autopilot.md). Laufend: CPU WP-DBT-01 · GPU WP-GPU-01 · Shader WP-SC-03 · Qualität WP-QA-01 + WP-PLAT-16.",
+ "goal_detail": "Durchgehende Pipeline, 4 Spuren. Laufend: CPU WP-DBT-02 · GPU WP-GPU-02 · Shader WP-SC-03 (Review) · Qualität WP-QA-04 + WP-QA-08 · Architekt WP-ARCH-01.",
  "milestones": [
   {
    "id": "M0",
    "name": "Fundament",
-   "status": "wip",
+   "status": "done",
    "criterion": "Struktur, ADRs, CI grün, Skelette mit Tests"
   },
   {
    "id": "M1",
    "name": "Erster Befehl",
-   "status": "open",
+   "status": "wip",
    "criterion": "aarch64-Linux-ELF läuft über T0, Differenztests grün"
   },
   {
@@ -82,7 +82,13 @@
    "wp": "WP-QA-01",
    "summary": "Fuzzing aller Gast-Parser in CI; erster Fund (MMIO-Ausrichtung) sofort per WP-PLAT-20 behoben",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-GPU-01",
+   "summary": "GPU-Protokoll v1: Aushandlung + Antwortkanal; stiller Teil-Commit (M0-Review) per Opcode-Klassen ausgeschlossen. M0 abgeschlossen.",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 13:45"
+ "updatedAt": "2026-10-14 14:05"
 }

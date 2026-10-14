@@ -19,6 +19,11 @@ fn attachment(tex: u32) -> ColorAttachmentRecord {
 fn sample_commands() -> Vec<Command<'static>> {
     vec![
         Command::Nop,
+        Command::Hello(Hello {
+            min_version: 1,
+            max_version: 3,
+            features: Features::SHARED_EVENTS,
+        }),
         Command::CreateBuffer(CreateBuffer {
             buffer_id: id(1),
             storage_mode: 0,
@@ -420,6 +425,9 @@ fn pseudo_random_garbage_never_panics() {
         let _ = decode_stream(&buf);
     }
 }
+
+#[path = "tests_session.rs"]
+mod session;
 
 #[test]
 fn proto_error_converts_to_guest_error() {

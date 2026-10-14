@@ -62,11 +62,13 @@ alle [Annahme]**. WP-GPU-03 ersetzt sie durch `vulkaninfo`-Dumps unter `docs/com
 | Baustein | Pfad | Inhalt |
 |---|---|---|
 | Drahtformat v1 | `ritsu-gpu-proto` | `Header`, `Opcode` (`#[non_exhaustive]`, feste `u16`-Werte), Record-Format, zero-copy `RecordIter`, typisierte `Command`s, `StreamEncoder`, `decode_stream` (Fuzz-Ziel) |
+| Aushandlung (WP-GPU-01) | `ritsu-gpu-proto::negotiate` | `Hello`, `Features` (64-Bit-Menge), `negotiate`, `decode_hello_stream`, `decode_session_stream` (Version, Feature-Gating, doppeltes HELLO) |
+| Antwortkanal (WP-GPU-01) | `ritsu-gpu-proto` (`reply`) | `ReplyOpcode`, `Reply` (`HelloAck` mit `CapabilityBlock`, `HelloReject`, `SessionReset`, `RecordError`, `CommandBufferStatus`, `EventSignaled`), `ErrorCode`, `ReplyEncoder`, `decode_reply_stream` (Fuzz-Ziel) |
 | Handles | `ritsu-gpu-host::handle` | `HandleTable<T>` mit Generationen, Stale-Erkennung, Slot-Stilllegung bei Generationsüberlauf, Kapazitätsgrenze |
 | Objektmodell | `ritsu-gpu-host::model` | `StorageMode`, `CpuCacheMode`, `HazardTrackingMode`, `TextureType`, `TextureUsage`, `PixelFormat` (Teilmenge, Blockgrößen), `BufferDesc`/`TextureDesc` mit Validierung, `ResourceLimits` |
 | Fähigkeiten | `ritsu-gpu-host::caps` | `Capabilities` (+ angenommene Profile RTX 4050 / Iris Xe), `EmulationPolicy`, `reported_feature_set(_with)` → `ReportedFeatures` |
 | Backend | `ritsu-gpu-host::backend` | `trait GpuBackend`, `GpuCommand`, `Submission`, `NullBackend` (validiert Encoder-Verschachtelung, Bounds, Attachments, Speicherbudget) |
-| Frontend G | `ritsu-gpu-host::frontend_g` | `GuestSession`: Gast-IDs → Backend-Handles, verzögertes Zerstören bis `Commit`, Events → `Unimplemented` |
+| Frontend G | `ritsu-gpu-host::frontend_g` | `GuestSession`: Handshake, Gast-IDs → Backend-Handles, Fehler pro Record, „poisoned“ Command Buffer (nach `OpcodeClass`), Completion strikt in Commit-Reihenfolge (`poll_completions`, Protokollgrenze `MAX_OUTSTANDING_SUBMISSIONS`), Sitzungs-Reset, verzögertes Zerstören bis `Commit` (zählt zur Objektgrenze); `capability_block` (`ReportedFeatures` → Drahtform) |
 
 ## 2. Begriffe
 
@@ -517,9 +519,10 @@ Testfehler.
   `waitUntilCompleted`.
 * **Warten im Gast:** Der Gast soll nie aktiv auf GPU-Arbeit spinnen (jeder Spin kostet emulierte CPU-Zeit):
   zuerst Completion-Seite prüfen, dann schlafen bis zum Interrupt.
-* **Fehler:** Ein ungültiger Command Buffer bekommt Status `Error` mit Fehlercode, die Sitzung lebt weiter.
-  Framing-Fehler im Protokoll oder `VK_ERROR_DEVICE_LOST` → Sitzung wird zurückgesetzt, der Gast sieht einen
-  GPU-Reset (wie ein echter Treiber nach einem Hang).
+* **Fehler:** Ein ungültiger Command Buffer bekommt Status `Error` mit Fehlercode, die Sitzung lebt weiter
+  (implementiert, §9.6). Protokollverletzungen (Framing, Version, nicht ausgehandelte Opcodes, doppeltes HELLO)
+  → Sitzung wird zurückgesetzt (`SessionReset`, implementiert); `VK_ERROR_DEVICE_LOST` soll denselben Weg nehmen
+  (WP-GPU-08). Der Gast sieht einen GPU-Reset (wie ein echter Treiber nach einem Hang).
 
 ### 8.2 Threads [Entscheidung]
 
@@ -579,8 +582,10 @@ vCPU-Threads blockieren nie auf GPU-Arbeit: Sie schreiben in den Ring und klinge
 * **Shared Memory Regions** (virtio 1.2 „shared memory“) für host-sichtbare Bereiche (Apertur, §6.2 b).
 * Befehlsringe: ein Single-Producer/Single-Consumer-Ring pro Gast-Queue im Gastspeicher, Kopf mit `head`/`tail`,
   Doorbell per virtqueue-Notify. Ein Batch zwischen zwei Doorbells ist ein **Stream** im Sinne von §9.2. Records
-  liegen nie über dem Ringende; davor füllt ein `Nop`-Record auf (`Nop` erlaubt beliebige Payload).
-* Rückkanal: Completion-Seiten (§8.1) + Antwort-Ring für Objekt-Fehler und Abfragen.
+  liegen nie über dem Ringende; davor füllt ein `Nop`-Record auf (`Nop` erlaubt beliebige Payload, auch im
+  HELLO-Strom, §9.3).
+* Rückkanal: Completion-Seiten (§8.1) + Antwort-Ring für Handshake, Fehler, Command-Buffer-Status und später
+  Abfragen. Format des Antwort-Rings: §9.6 (implementiert, Transport noch offen G-14).
 
 ### 9.2 Format (implementiert, Version 1)
 
@@ -589,7 +594,9 @@ Header (16 B):  magic u32 = "RTSG" | version u16 | flags u16 (=0) | record_count
 Record:         opcode u16 | flags u16 (=0) | payload_len u32 | payload | Null-Padding auf 8 B
 ```
 
-Little-Endian, jeder Record ein Vielfaches von 8 Byte. Opcodes (fest, nie wiederverwendet): `0x00xx` Steuerung,
+Little-Endian, jeder Record ein Vielfaches von 8 Byte. Der Header akzeptiert Versionen im Bereich
+`MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION` (derzeit 1..=1); die Sitzung verlangt danach genau die ausgehandelte.
+Opcodes (fest, nie wiederverwendet): `0x00xx` Steuerung (`Nop` 0x0001, `Hello` 0x0002),
 `0x01xx` Ressourcen, `0x02xx` Render-Encoder, `0x03xx` Compute-Encoder, `0x04xx` Synchronisation, `0x05xx`
 Submission. Jeder Opcode hat eine Längenregel (`Exact`/`AtLeast`). Objekt-ID 0 ist reserviert (null).
 Enum-Felder werden roh (Metal-SDK-Werte) übertragen und erst im Host-Modell validiert.
@@ -597,25 +604,58 @@ Enum-Felder werden roh (Metal-SDK-Werte) übertragen und erst im Host-Modell val
 Fehler, die der Decoder erkennt (`ProtoError`): zu kurzer Header, falsche Magic, falsche Version, gesetzte
 Reserve-Bits/Flags/Padding, Record-Anzahl größer als möglich, abgeschnittener Record-Kopf/Payload, Payload zu
 groß (> 16 MiB), unbekannter Opcode, falsche Payload-Länge, ungültige Felder (ID 0, inkonsistente Attachment-Zahl),
-überzählige Bytes. Kein Fall führt zu Panic oder ungeprüftem Index; Speicherbedarf wächst nur mit tatsächlich
+überzählige Bytes; sitzungsbezogen (§9.3): `HelloRequired`, `HelloNotAlone`, `UnexpectedHello`, `VersionMismatch`,
+`FeatureNotNegotiated`. `ProtoError::reply_code()`/`offset()`/`raw_opcode()` liefern die Felder für `SessionReset`. Kein Fall führt zu Panic oder ungeprüftem Index; Speicherbedarf wächst nur mit tatsächlich
 dekodierten Records (nicht mit der angegebenen Anzahl). Tests: alle Präfixe eines gültigen Streams, alle
 Einzelbit-Flips, 20 000 Pseudozufalls-Streams.
 
-### 9.3 Versionierung und Feature-Aushandlung
+### 9.3 Versionierung und Feature-Aushandlung (implementiert, WP-GPU-01)
 
-* Bei Sitzungsbeginn: `HELLO {min_version, max_version, feature_bits}` vom Gast → Antwort mit gewählter Version,
-  aktivierten Feature-Bits und dem **Fähigkeitsblock** (`ReportedFeatures`, serialisiert). Erst danach sind Streams
-  erlaubt. (Noch nicht implementiert; v1 verlangt exakt `PROTOCOL_VERSION`.)
-* Neue Opcodes innerhalb einer Hauptversion nur, wenn das zugehörige Feature-Bit ausgehandelt wurde; sonst bleibt
-  „unbekannter Opcode“ ein Fehler. Record-Flags bleiben reserviert, bis ein Feature-Bit sie definiert.
+* **Bootstrap** [Entscheidung]: Rahmenformat (Stream- und Record-Header) sowie die Payloads von `Hello`,
+  `HelloAck` und `HelloReject` sind über **alle** Protokollversionen eingefroren. Der HELLO-Strom trägt immer
+  Header-Version `BOOTSTRAP_VERSION` (= 1), damit jeder Host jedes HELLO lesen kann. Der Header-Parser akzeptiert
+  `BOOTSTRAP_VERSION` deshalb **immer**, auch wenn sie einmal unter `MIN_PROTOCOL_VERSION` fällt
+  (`version_parseable`, Compile-Zeit-Assert + Test); das gilt ebenso für den Bootstrap-Antwortstrom.
+* Erster Strom einer Sitzung: genau **ein** Record `Hello` (16 B):
+  `min_version u16 | max_version u16 | reserved u32 | features u64`, davor und danach beliebig viele
+  `Nop`-Records (Ring-Auffüllung, §9.1). Draht-Prüfung: `min_version ≥ 1`, `max_version ≥ min_version`.
+* Antworten vor dem Handshake (es gibt nichts zurückzusetzen, der Host wartet weiter auf HELLO):
+  * `SessionReset` `Malformed`: Framing- oder Drahtfehler (auch ungültiges `Hello`-Feld) oder ein weiterer
+    Nicht-`Nop`-Record nach dem HELLO (`HelloNotAlone`);
+  * `SessionReset` `UnsupportedVersion`: Header-Version ≠ `BOOTSTRAP_VERSION`;
+  * `SessionReset` `HelloRequired`: ein anderer Record als `Nop` vor dem HELLO oder gar kein HELLO;
+  * `HelloReject`: gültiges HELLO ohne gemeinsame Version.
+* `negotiate`: Version = höchste Version in Gast-Bereich ∩ `MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION`; leer →
+  `HelloReject {host_min_version, host_max_version}` (Sitzung bleibt offen für ein neues HELLO). Features =
+  Gast-Angebot ∩ Host-Angebot ∩ `Features::KNOWN`. Das Host-Angebot (`frontend_g::HOST_FEATURES`) enthält nur, was
+  der Host **implementiert** (niemals still falsch); unbekannte Bits werden nie bestätigt.
+* Antwort `HelloAck`: gewählte Version, aktivierte Features, **Fähigkeitsblock** (`CapabilityBlock`, 48 B:
+  Familien-Bits Apple7/Mac2/Common3/Metal3/Metal4, Argument-Buffer-Tier, zehn `SupportLevel`s
+  {0 = nicht gemeldet, 1 = nativ, 2 = emuliert}, Grenzen aus `ReportedFeatures::limits`). Der Gast-Treiber meldet
+  Metal-Clients genau diese Menge.
+* **Vorwärtskompatibilität des eingefrorenen `HelloAck`** [Entscheidung]: Der Host sendet nur Werte, die in der
+  ausgehandelten Version bzw. mit den ausgehandelten Features definiert sind: Familien-Bits, `SupportLevel`s,
+  `ErrorCode`s und Antwort-Opcodes (`EventSignaled` nur mit `SHARED_EVENTS`). Der Referenz-Decoder des Gasts
+  ignoriert zusätzlich unbekannte Familien-Bits, damit ein neuerer Host Familien ergänzen kann, ohne ältere Gäste
+  zu brechen. Andere unbekannte Werte bleiben Decoder-Fehler (sie dürften nach der Regel nie gesendet werden).
+* Feature-Bits v1: Bit 0 `SHARED_EVENTS` (Opcodes `SignalEvent`/`WaitEvent`, Antwort `EventSignaled`). Der Host
+  bietet es noch nicht an (WP-GPU-08). Ein Gating-Opcode ohne ausgehandeltes Feature gilt wie ein unbekannter
+  Opcode → Protokollverletzung (`FeatureNotNegotiated`). Record-Flags bleiben reserviert, bis ein Feature-Bit sie
+  definiert. *Hinweis:* `SignalEvent`/`WaitEvent` waren in M0 ungegatet; v1 ist noch nicht ausgeliefert
+  (kein Gast-Treiber), daher ohne Versionssprung geändert.
+* Nach dem Handshake: Jeder Strom trägt die ausgehandelte Version (`VersionMismatch` sonst); ein weiteres `Hello`
+  ist eine Protokollverletzung (`DuplicateHello`) und setzt die Sitzung zurück. Ein Treiber-Neustart im Gast
+  erhält so einen sauberen Host-Zustand und verhandelt neu.
 * Inkompatible Änderungen → neue Hauptversion; der Host unterstützt mindestens die aktuelle und die vorige.
 
 ### 9.4 Validierung und Datenfluss
 
 1. Batch aus dem Ring in einen Host-Puffer kopieren (TOCTOU).
-2. `decode_stream`: Framing + Drahtformat. Bei Fehler: nichts ausführen, Sitzung zurücksetzen.
-3. `GuestSession::execute_stream`: semantische Prüfung (Objektmodell, Handles, Limits) und Ausführung.
-   Semantische Fehler betreffen nur den aktuellen Command Buffer bzw. das Objekt.
+2. `decode_hello_stream` (vor dem Handshake) bzw. `decode_session_stream` (danach): Framing, Drahtformat,
+   Version, Feature-Gating. Bei Fehler: nichts ausführen, Sitzung zurücksetzen (`SessionReset`).
+3. `GuestSession::execute_stream`: semantische Prüfung (Objektmodell, Handles, Limits) und Ausführung, Record für
+   Record. Semantische Fehler betreffen nur den Record (`RecordError`) und, falls er zum aufgezeichneten Command
+   Buffer gehört, diesen Command Buffer (§9.6). Die Ausführung geht mit dem nächsten Record weiter.
 
 ### 9.5 Zero-Copy und Uploads
 
@@ -625,7 +665,56 @@ Einzelbit-Flips, 20 000 Pseudozufalls-Streams.
 * Shader: `metallib`-Blobs werden per Hash angemeldet (`QueryLibrary(hash)` → vorhanden/benötigt); nur bei
   Cache-Miss werden Daten übertragen.
 
-### 9.6 Noch fehlende Befehlsklassen (Folge-WPs)
+### 9.6 Antwortkanal (Host → Gast, implementiert, WP-GPU-01)
+
+Gleiches Rahmenformat wie §9.2, aber Magic `"RTSR"` und eigene Opcodes (`0x80xx`, fest, nie wiederverwendet).
+Alle Payloads haben feste Länge. Jeder an `execute_stream` übergebene Strom erhält eine Sequenznummer
+(`stream_seq`, ab 0 pro Sitzung, auch über Resets hinweg fortlaufend); Gast und Host zählen beide mit.
+
+| Opcode | Antwort | Payload | Bedeutung |
+|---|---|---|---|
+| 0x8001 | `HelloAck` | 64 B | §9.3 (eingefroren) |
+| 0x8002 | `HelloReject` | 8 B | keine gemeinsame Version (eingefroren) |
+| 0x8003 | `SessionReset` | 24 B: `stream_seq u64, offset u64, opcode u16, code u16, reserved u32` | Strom als Ganzes abgelehnt, nichts davon ausgeführt; alle Objekte zerstört, offene Arbeit verworfen, keine weiteren Status für ältere Submissions; Gast muss neu HELLO senden |
+| 0x8004 | `RecordError` | 32 B: `stream_seq u64, record_index u32, opcode u16, code u16, object_id u32, reserved u32, detail u64` | ein Record nicht ausgeführt, Strom lief weiter |
+| 0x8005 | `CommandBufferStatus` | 16 B: `submission_id u64, status u8 (0 ok/1 Fehler), reserved u8, code u16, reserved u32` | genau einer pro `Commit`, in Commit-Reihenfolge |
+| 0x8006 | `EventSignaled` | 16 B: `event_id u32, reserved u32, value u64` | nur mit `SHARED_EVENTS` (derzeit nie gesendet) |
+
+`ErrorCode` (u16): 1 `Malformed`, 2 `HelloRequired`, 3 `DuplicateHello`, 4 `UnsupportedVersion`,
+5 `FeatureNotNegotiated`, 6 `UnknownObject`, 7 `DuplicateObject`, 8 `InvalidArgument`, 9 `InvalidCommand`,
+10 `OutOfMemory` (`detail` = angeforderte Bytes), 11 `LimitExceeded`, 12 `Unimplemented`, 13 `HostError`,
+14 `TooManyErrors` (`detail` = Zahl unterdrückter Fehler).
+
+**Regeln** [Entscheidung]:
+
+* **Poisoned Command Buffer.** Jeder Opcode trägt eine Pflicht-Klasse (`OpcodeClass`: `Control`, `Resource`,
+  `Encoder`, `Sync`, `Submission`; Spalte im Opcode-Makro, ein neuer Opcode kompiliert nicht ohne sie). Scheitert
+  ein Record der Klassen `Encoder` oder `Sync` (heute `CopyBuffer`, Render-/Compute-Encoder-Befehle,
+  `SignalEvent`/`WaitEvent`) oder einer künftigen, dem Frontend unbekannten Klasse, wird der Command Buffer
+  markiert. Ein Befehl, den das Frontend gar nicht ausführen kann, markiert ihn unabhängig von der Klasse (im
+  Zweifel vergiften) –
+  **auch über Stromgrenzen hinweg**. Folgende Encoder-Befehle werden bis zum `Commit` ohne weitere Meldung
+  übersprungen; der `Commit` reicht nichts ein, meldet `CommandBufferStatus = Error(Code des ersten Fehlers)`,
+  verwirft die offenen Befehle und führt verzögerte Destroys trotzdem aus. Ein Teil-Command-Buffer wird nie als
+  erfolgreich ausgeführt (Review-Befund WP-M0-REV, Regressionstest
+  `regression_failed_record_poisons_command_buffer_across_streams`). Ressourcenbefehle (`Create*`, `Destroy*`,
+  `WriteBuffer`) sind Gerätebefehle und vergiften keinen Command Buffer.
+* **Completion.** Erfolgreich eingereichte Command Buffer melden `Completed`, sobald die Backend-Timeline sie
+  erreicht (`GuestSession::poll_completions`, später vom Completion-Thread angestoßen, §8.1); fehlgeschlagene
+  warten in derselben Warteschlange. Die Status kommen damit **ausnahmslos** in Commit-Reihenfolge.
+* **Protokollregel `MAX_OUTSTANDING_SUBMISSIONS`** (65 536, Konstante in `ritsu-gpu-proto`): So viele committete
+  Command Buffer darf der Gast höchstens haben, deren Status er noch nicht erhalten hat. Der Host prüft vor der
+  Ausführung eines Stroms, ob dessen `Commit`s die Grenze überschreiten würden; wenn ja, ist das eine
+  Protokollverletzung (`SessionReset` `LimitExceeded`, nichts vom Strom ausgeführt). Ein Gast-Treiber blockiert
+  wie ein echter Treiber vorher. So kann die Status-Warteschlange nie überlaufen und die Reihenfolge bleibt erhalten.
+* **Grenzen.** Höchstens `MAX_ERRORS_PER_STREAM` (64) `RecordError`s pro Strom, danach ein `TooManyErrors`;
+  höchstens `MAX_PENDING_COMMANDS` aufgezeichnete Befehle (darüber `LimitExceeded`, vergiftet den Command
+  Buffer); höchstens `MAX_OBJECTS_PER_KIND` Objekte pro Art, gezählt werden lebende **und** auf verzögertes
+  Zerstören wartende Objekte (darüber `LimitExceeded`). Die Antwortmenge pro Strom ist durch die Stromgröße
+  beschränkt, nie durch eine Gast-Zahl.
+* Fuzz-Ziel für die Gegenseite: `decode_reply_stream` (Referenzdecoder für den Gast-Treiber).
+
+### 9.7 Noch fehlende Befehlsklassen (Folge-WPs)
 
 Bibliotheken/Funktionen, Render-/Compute-Pipelines, Sampler, Argument-Buffer, Heaps, Fences/Events (derzeit
 `Unimplemented`), Depth/Stencil-Attachments und Resolve, indizierte/indirekte Draws, Blit-Texturbefehle,
@@ -687,7 +776,7 @@ Verhalten des proprietären NVIDIA-Treibers beim Export linearer Images [Annahme
 | Ebene | Was | Wo |
 |---|---|---|
 | Einheit | Decoder, Handles, Modell-Validierung, Fähigkeits-Policy, `NullBackend`, `GuestSession` (vorhanden) | `cargo test -p ritsu-gpu-proto -p ritsu-gpu-host` |
-| Fuzzing | `decode_stream` (Fuzz-Ziel ab sofort geeignet); strukturiertes Fuzzing `GuestSession<NullBackend>`; später Differenz „NullBackend und Vulkan-Backend lehnen dieselben Eingaben ab“ | `fuzz/` (test-engineer) |
+| Fuzzing | `decode_stream`, `decode_hello_stream`, `decode_session_stream`, `decode_reply_stream` (alle panikfrei); strukturiertes Fuzzing `GuestSession<NullBackend>` (erst HELLO senden; Invariante: jede `StreamOutcome::reply_stream()` dekodiert fehlerfrei); später Differenz „NullBackend und Vulkan-Backend lehnen dieselben Eingaben ab“ | `fuzz/` (test-engineer) |
 | Hazard | Golden-Barrierenlisten (§7.7) | ohne GPU |
 | Vulkan in CI | **lavapipe** (Mesa-Software-Vulkan, 1.3; Mesh/Ray Query je nach Mesa-Version [Annahme]) mit Validation-Layern inkl. Synchronization-Validation und GPU-AV; jede Meldung = Testfehler | CI |
 | Bildvergleich | eigene Testszenen (Metal-Quelltext, einmalig auf einem Mac zu AIR kompiliert, ADR-0007) + **Referenzbilder von echter Apple-Hardware**; Toleranz pro Test (UNORM-Ziele ±1 LSB, Filterung/Transzendente mit PSNR-Schwelle); lavapipe-Goldens zusätzlich als Regressionsschutz | `tests/gpu/` (braucht O-2: Mac) |

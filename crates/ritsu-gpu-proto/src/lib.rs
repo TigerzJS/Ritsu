@@ -23,27 +23,49 @@
 //! an 8-byte aligned offset relative to the stream start. The decoder does not require the
 //! *buffer* to be aligned in host memory (it reads bytes, never casts pointers).
 //!
+//! # Session
+//!
+//! A session starts with a bootstrap stream holding a single HELLO record; the host answers
+//! on the reply channel (same framing, magic `"RTSR"`, [`ReplyOpcode`]) with `HelloAck` or
+//! `HelloReject`. Afterwards streams carry the negotiated version and may use feature-gated
+//! opcodes only if negotiated ([`negotiate`] module). The reply channel also carries
+//! per-record errors, session resets and command buffer completion ([`Reply`]).
+//!
 //! # Hostile input
 //!
 //! Everything here decodes guest-controlled bytes. Every malformed input is reported as a
 //! [`ProtoError`]; nothing panics, indexes unchecked, or allocates proportionally to a
-//! guest-declared count. [`decode_stream`] is the intended fuzz target.
+//! guest-declared count. Fuzz targets (all panic-free on every input):
+//!
+//! * [`decode_stream`]: command stream framing + payloads (session-independent).
+//! * [`decode_hello_stream`] / [`decode_session_stream`]: the same plus handshake rules.
+//! * [`decode_reply_stream`]: reply channel (host → guest).
 
 mod command;
 mod encode;
 mod error;
+pub mod negotiate;
 mod reader;
+mod reply;
 mod wire;
 
 pub use command::{
     BeginRenderPass, ColorAttachmentRecord, Command, CopyBuffer, CreateBuffer, CreateTexture,
     Dispatch, Draw, EventValue, MAX_COLOR_ATTACHMENTS, ObjectId, WriteBuffer,
 };
-pub use encode::StreamEncoder;
+pub use encode::{ReplyEncoder, StreamEncoder};
 pub use error::ProtoError;
+pub use negotiate::{
+    Features, Hello, HelloReject, Negotiated, decode_hello_stream, decode_session_stream,
+};
+pub use reply::{
+    CapabilityBlock, CommandBufferStatus, ErrorCode, HelloAck, NO_RECORD, RecordError, Reply,
+    StreamFault, SubmissionStatus, SupportLevel, decode_reply_stream,
+};
 pub use wire::{
-    HEADER_LEN, Header, MAGIC, MAX_PAYLOAD_LEN, Opcode, PROTOCOL_VERSION, PayloadLen, RECORD_ALIGN,
-    RECORD_HEADER_LEN, Record, RecordIter,
+    BOOTSTRAP_VERSION, HEADER_LEN, Header, MAGIC, MAX_OUTSTANDING_SUBMISSIONS, MAX_PAYLOAD_LEN,
+    MIN_PROTOCOL_VERSION, Opcode, OpcodeClass, PROTOCOL_VERSION, PayloadLen, RECORD_ALIGN,
+    RECORD_HEADER_LEN, REPLY_MAGIC, Record, RecordIter, ReplyOpcode, version_parseable,
 };
 
 /// Decodes and fully validates a complete stream into typed [`Command`]s.

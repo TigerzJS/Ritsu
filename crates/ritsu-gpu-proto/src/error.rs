@@ -120,10 +120,108 @@ pub enum ProtoError {
         len: usize,
     },
 
+    /// A session that has not negotiated yet received something other than a stream
+    /// consisting of exactly one HELLO record. `raw` is the opcode found (0 if the stream
+    /// has no record).
+    #[error("HELLO required before opcode {raw:#06x} at offset {offset}")]
+    HelloRequired {
+        /// Offset of the offending record (or of the end of the header for empty streams).
+        offset: usize,
+        /// Raw opcode found.
+        raw: u16,
+    },
+
+    /// A HELLO stream contains more than the single HELLO record.
+    #[error("HELLO stream has extra record at offset {offset}")]
+    HelloNotAlone {
+        /// Offset of the first extra record.
+        offset: usize,
+    },
+
+    /// HELLO received in a session that has already negotiated.
+    #[error("duplicate HELLO at offset {offset}")]
+    UnexpectedHello {
+        /// Offset of the HELLO record.
+        offset: usize,
+    },
+
+    /// The stream header version differs from the version negotiated for the session.
+    #[error("stream version {found} differs from negotiated version {negotiated}")]
+    VersionMismatch {
+        /// Version in the stream header.
+        found: u16,
+        /// Version negotiated with HELLO.
+        negotiated: u16,
+    },
+
+    /// The opcode requires a feature bit the session did not negotiate (treated like an
+    /// unknown opcode, gpu.md §9.3).
+    #[error("opcode {raw:#06x} at offset {offset} needs a feature that was not negotiated")]
+    FeatureNotNegotiated {
+        /// Offset of the record.
+        offset: usize,
+        /// Raw opcode.
+        raw: u16,
+    },
+
     /// The encoder was asked to produce a stream that cannot be represented
     /// (too many records or payload too large). Encoder-side only.
     #[error("encoder limit exceeded: {0}")]
     EncoderLimit(&'static str),
+}
+
+impl ProtoError {
+    /// Byte offset in the stream the error refers to, if any (0 = stream header).
+    #[must_use]
+    pub const fn offset(&self) -> Option<usize> {
+        match *self {
+            Self::TruncatedHeader { .. }
+            | Self::BadMagic { .. }
+            | Self::UnsupportedVersion { .. }
+            | Self::RecordCountTooLarge { .. }
+            | Self::VersionMismatch { .. } => Some(0),
+            Self::ReservedNonZero { offset }
+            | Self::TruncatedRecordHeader { offset }
+            | Self::TruncatedPayload { offset, .. }
+            | Self::PayloadTooLarge { offset, .. }
+            | Self::UnknownOpcode { offset, .. }
+            | Self::UnknownFlags { offset, .. }
+            | Self::BadPayloadLength { offset, .. }
+            | Self::InvalidField { offset, .. }
+            | Self::TrailingBytes { offset, .. }
+            | Self::HelloRequired { offset, .. }
+            | Self::HelloNotAlone { offset }
+            | Self::UnexpectedHello { offset }
+            | Self::FeatureNotNegotiated { offset, .. } => Some(offset),
+            Self::EncoderLimit(_) => None,
+        }
+    }
+
+    /// Raw opcode of the offending record, if the error is tied to a known opcode value.
+    #[must_use]
+    pub const fn raw_opcode(&self) -> Option<u16> {
+        match *self {
+            Self::UnknownOpcode { raw, .. }
+            | Self::HelloRequired { raw, .. }
+            | Self::FeatureNotNegotiated { raw, .. } => Some(raw),
+            Self::BadPayloadLength { opcode, .. } => Some(opcode),
+            Self::UnexpectedHello { .. } => Some(crate::Opcode::Hello.raw()),
+            _ => None,
+        }
+    }
+
+    /// Reply-channel error code for this protocol violation.
+    #[must_use]
+    pub const fn reply_code(&self) -> crate::ErrorCode {
+        use crate::ErrorCode as C;
+        match self {
+            Self::UnsupportedVersion { .. } | Self::VersionMismatch { .. } => C::UnsupportedVersion,
+            Self::HelloRequired { .. } => C::HelloRequired,
+            Self::UnexpectedHello { .. } => C::DuplicateHello,
+            Self::FeatureNotNegotiated { .. } => C::FeatureNotNegotiated,
+            _ => C::Malformed,
+        }
+    }
 }
 
 impl From<ProtoError> for ritsu_core::Error {

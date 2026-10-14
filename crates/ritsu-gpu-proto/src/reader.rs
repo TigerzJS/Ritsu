@@ -1,5 +1,8 @@
 //! Bounds-checked little-endian reading helpers. Never panic, never index unchecked.
 
+use crate::command::ObjectId;
+use crate::error::ProtoError;
+
 /// Reads `N` bytes at `at`, or `None` if out of range (including offset overflow).
 pub(crate) fn array_at<const N: usize>(bytes: &[u8], at: usize) -> Option<[u8; N]> {
     let end = at.checked_add(N)?;
@@ -65,6 +68,68 @@ impl<'a> Cursor<'a> {
     /// Current position within the payload.
     pub(crate) fn pos(&self) -> usize {
         self.pos
+    }
+}
+
+/// Payload decoding context: turns `None` from the cursor into a positioned error.
+#[derive(Debug)]
+pub(crate) struct Dec<'a> {
+    pub(crate) cur: Cursor<'a>,
+    /// Offset of the record header within the stream.
+    pub(crate) offset: usize,
+}
+
+impl<'a> Dec<'a> {
+    pub(crate) fn new(payload: &'a [u8], offset: usize) -> Self {
+        Self {
+            cur: Cursor::new(payload),
+            offset,
+        }
+    }
+    pub(crate) fn err(&self, field: &'static str) -> ProtoError {
+        ProtoError::InvalidField {
+            offset: self.offset,
+            field,
+        }
+    }
+    pub(crate) fn u8(&mut self, f: &'static str) -> Result<u8, ProtoError> {
+        self.cur.u8().ok_or_else(|| self.err(f))
+    }
+    pub(crate) fn u16(&mut self, f: &'static str) -> Result<u16, ProtoError> {
+        self.cur.u16().ok_or_else(|| self.err(f))
+    }
+    pub(crate) fn u32(&mut self, f: &'static str) -> Result<u32, ProtoError> {
+        self.cur.u32().ok_or_else(|| self.err(f))
+    }
+    pub(crate) fn u64(&mut self, f: &'static str) -> Result<u64, ProtoError> {
+        self.cur.u64().ok_or_else(|| self.err(f))
+    }
+    pub(crate) fn f32(&mut self, f: &'static str) -> Result<f32, ProtoError> {
+        self.cur.f32().ok_or_else(|| self.err(f))
+    }
+    /// Reads a non-zero object id.
+    pub(crate) fn id(&mut self, f: &'static str) -> Result<ObjectId, ProtoError> {
+        let raw = self.u32(f)?;
+        ObjectId::new(raw).ok_or_else(|| self.err(f))
+    }
+    /// Reads `n` reserved bytes that must be zero.
+    pub(crate) fn reserved(&mut self, n: usize) -> Result<(), ProtoError> {
+        for _ in 0..n {
+            // Record offset + record header + position inside payload.
+            let at = self.offset + crate::RECORD_HEADER_LEN + self.cur.pos();
+            if self.u8("reserved")? != 0 {
+                return Err(ProtoError::ReservedNonZero { offset: at });
+            }
+        }
+        Ok(())
+    }
+    /// Fails if payload bytes remain (guards against layout/length-rule mismatches).
+    pub(crate) fn finish(mut self) -> Result<(), ProtoError> {
+        if self.cur.rest().is_empty() {
+            Ok(())
+        } else {
+            Err(self.err("payload_tail"))
+        }
     }
 }
 
