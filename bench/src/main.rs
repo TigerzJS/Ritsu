@@ -9,6 +9,12 @@
 //!   --samples N       samples per benchmark (default 15)
 //!   --list            print the benchmark names and exit
 //!   --allow-debug     run in a debug build (numbers are meaningless; for development only)
+//!
+//! Instruction-count mode (driven by tools/bench_icount.py, which runs it under valgrind):
+//!   --icount-list           per benchmark: name, repetitions, Q-PERF id, work unit (tab separated)
+//!   --icount-meta           print the run metadata (JSON) and exit
+//!   --icount-run NAME --reps N
+//!                           set up the workload, call it N times, print `work_per_call=<n>`
 //! ```
 
 use ritsu_bench::harness::Config;
@@ -16,7 +22,8 @@ use ritsu_bench::{meta, suite};
 use std::process::ExitCode;
 
 fn usage() -> &'static str {
-    "usage: ritsu-bench [--output FILE] [--host-id ID] [--filter TEXT] [--quick] [--samples N] [--list] [--allow-debug]"
+    "usage: ritsu-bench [--output FILE] [--host-id ID] [--filter TEXT] [--quick] [--samples N] [--list] [--allow-debug] \
+     | --icount-list | --icount-meta [--host-id ID] | --icount-run NAME --reps N"
 }
 
 fn write_output(path: &str, text: &str) -> Result<(), String> {
@@ -36,6 +43,10 @@ fn main() -> ExitCode {
     let mut quick = false;
     let mut samples = None;
     let mut allow_debug = false;
+    let mut icount_list = false;
+    let mut icount_meta = false;
+    let mut icount_run = None;
+    let mut reps = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let mut value = |name: &str| {
@@ -55,6 +66,16 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             },
+            "--reps" => match value("--reps").parse::<u64>() {
+                Ok(n) if n > 0 => reps = Some(n),
+                _ => {
+                    eprintln!("error: --reps needs a positive integer");
+                    return ExitCode::from(2);
+                }
+            },
+            "--icount-run" => icount_run = Some(value("--icount-run")),
+            "--icount-list" => icount_list = true,
+            "--icount-meta" => icount_meta = true,
             "--quick" => quick = true,
             "--allow-debug" => allow_debug = true,
             "--list" => {
@@ -85,6 +106,38 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
+    if icount_list {
+        for b in suite::benches() {
+            let reps = suite::icount_reps(b.name).expect("icount_reps covers every benchmark");
+            println!("{}\t{reps}\t{}\t{}", b.name, b.q_perf, b.work_unit);
+        }
+        return ExitCode::SUCCESS;
+    }
+    let seed = meta::seed_from_env(0x5249_5453_5500_0001);
+    if icount_meta {
+        print!(
+            "{}",
+            meta::collect_icount(&host_id, seed).to_pretty_string()
+        );
+        return ExitCode::SUCCESS;
+    }
+    if let Some(name) = icount_run {
+        let Some(reps) = reps else {
+            eprintln!("error: --icount-run needs --reps\n{}", usage());
+            return ExitCode::from(2);
+        };
+        return match suite::icount_run(&name, &suite::Ctx { seed }, reps) {
+            Ok(work) => {
+                println!("work_per_call={work}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let mut cfg = if quick {
         Config::QUICK
     } else {
@@ -93,7 +146,6 @@ fn main() -> ExitCode {
     if let Some(n) = samples {
         cfg.samples = n;
     }
-    let seed = meta::seed_from_env(0x5249_5453_5500_0001);
     let meta = meta::collect(&host_id, &cfg, quick, seed, filter.as_deref());
     eprintln!(
         "ritsu-bench: host-id {host_id}, seed {seed:#x}, {} samples",

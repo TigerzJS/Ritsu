@@ -1,3 +1,5 @@
 [toolchain]
-channel = "stable"
+# Pinned for reproducible builds and comparable instruction-count benchmarks
+# (bench/baselines/icount-*.json). Bump deliberately, together with new baselines.
+channel = "1.97.0"
 components = ["rustfmt", "clippy"]

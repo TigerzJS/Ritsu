@@ -10,8 +10,15 @@ Policy (testing.md section 8):
   machine class (host_id "g5mf", fixed governor) or with --strict-wall the limit is 5 % and the
   verdict is FAIL.
 * A different `work_per_call` means the workload changed: the comparison is meaningless and
-  fails ("regenerate the baseline"). The same holds for a benchmark that vanished.
-* A baseline from a different CPU model is an error on strict hosts and a note elsewhere.
+  fails ("regenerate the baseline"). The same holds for a benchmark that vanished. This applies
+  to every kind that carries `work_per_call`, including the instruction-count results of
+  tools/bench_icount.py (kind "deterministic", unit host_insn/...).
+* A baseline from a different CPU model is an error on strict hosts and a note elsewhere (and only
+  mentioned at all when wall-clock results are compared: instruction counts do not depend on it).
+* A different compiler (`meta.rustc`, version number) or C library (`meta.config.libc`) is a note.
+  Instruction counts shift with both, so a deterministic regression is then still a failure by
+  default; `--on-toolchain-diff warn` downgrades it to a warning (for CI that floats on the
+  `stable` toolchain and on the runner image).
 * Results from debug builds or --quick runs are rejected.
 
 "Worse" respects the direction of each metric (`better`: higher/lower). Improvements are
@@ -19,7 +26,7 @@ reported, never failed; update the baseline in a PR with a before/after table.
 
 Usage:
     python3 tools/bench_compare.py BASELINE.json RESULT.json [--wall-warn PCT] [--wall-fail PCT]
-                                   [--det-fail PCT] [--strict-wall]
+                                   [--det-fail PCT] [--strict-wall] [--on-toolchain-diff {fail,warn}]
     python3 tools/bench_compare.py --merge OUT.json RESULT.json...   # baseline = median of several runs
     python3 tools/bench_compare.py --validate RESULT.json...         # schema check only
     python3 tools/bench_compare.py --self-test
@@ -33,6 +40,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import unittest
 from dataclasses import dataclass, field
@@ -41,6 +49,24 @@ DET_FAIL_PCT = 2.0
 WALL_WARN_PCT = 10.0
 WALL_FAIL_PCT_STRICT = 5.0
 STRICT_HOSTS = {"g5mf"}
+
+
+def rustc_version(meta: dict) -> str | None:
+    """`1.97.0` out of `rustc 1.97.0 (2d8144b78 2026-07-07)`; None if absent."""
+    m = re.match(r"rustc (\S+)", str(meta.get("rustc") or ""))
+    return m.group(1) if m else None
+
+
+def toolchain_diffs(bm: dict, nm: dict) -> list[str]:
+    """Differences between baseline and result in what instruction counts depend on besides the code."""
+    diffs = []
+    b, n = rustc_version(bm), rustc_version(nm)
+    if b is not None and n is not None and b != n:
+        diffs.append(f"rustc {b} -> {n}")
+    b, n = bm.get("config", {}).get("libc"), nm.get("config", {}).get("libc")
+    if b is not None and n is not None and b != n:
+        diffs.append(f"libc {b} -> {n}")
+    return diffs
 
 
 class InputError(Exception):
@@ -162,8 +188,13 @@ def compare(
     wall_warn: float = WALL_WARN_PCT,
     wall_fail: float | None = None,
     strict: bool | None = None,
+    on_toolchain_diff: str = "fail",
 ) -> Report:
-    """Compare two validated documents. `wall_fail=None` means wall regressions only warn."""
+    """Compare two validated documents. `wall_fail=None` means wall regressions only warn.
+
+    `on_toolchain_diff="warn"` turns deterministic regressions into warnings when the baseline was
+    made with a different compiler version or libc (the cause may be the toolchain, not the code).
+    """
     rep = Report()
     bm, nm = base["meta"], new["meta"]
     host = nm.get("host_id")
@@ -184,7 +215,12 @@ def compare(
     bcpu = bm.get("cpu", {}).get("model")
     ncpu = nm.get("cpu", {}).get("model")
     cpu_differs = bcpu != ncpu
-    if cpu_differs:
+    has_wall = any(r["kind"] == "wall" for r in (*base["results"], *new["results"]))
+    tdiffs = toolchain_diffs(bm, nm)
+    tdiff_text = "toolchain differs (" + ", ".join(tdiffs) + ")"
+    if tdiffs:
+        rep.notes.append(tdiff_text + "; instruction counts depend on compiler and libc")
+    if cpu_differs and has_wall:
         msg = f"CPU differs: baseline {bcpu!r}, result {ncpu!r}"
         if strict:
             rep.failures.append(msg + " (wall-clock comparison invalid on a strict host)")
@@ -203,7 +239,8 @@ def compare(
         if b["kind"] != n["kind"] or b["better"] != n["better"] or b["unit"] != n["unit"]:
             rep.failures.append(f"{name}: kind/unit/direction changed; regenerate the baseline")
             continue
-        if b["kind"] == "wall" and b.get("work_per_call") != n.get("work_per_call"):
+        both_have_work = "work_per_call" in b and "work_per_call" in n
+        if (b["kind"] == "wall" or both_have_work) and b.get("work_per_call") != n.get("work_per_call"):
             rep.failures.append(
                 f"{name}: workload changed (work_per_call {b.get('work_per_call')} -> "
                 f"{n.get('work_per_call')}); regenerate the baseline"
@@ -215,10 +252,13 @@ def compare(
         verdict = "ok"
         if b["kind"] == "deterministic":
             if w > det_fail:
-                verdict = "FAIL"
-                rep.failures.append(
-                    f"{name}: {b['value']} -> {n['value']} {b['unit']} ({w:+.1f}% worse, limit {det_fail}%)"
-                )
+                msg = f"{name}: {b['value']:.6g} -> {n['value']:.6g} {b['unit']} ({w:+.1f}% worse, limit {det_fail}%)"
+                if tdiffs and on_toolchain_diff == "warn":
+                    verdict = "WARN"
+                    rep.warnings.append(f"{msg}; {tdiff_text}, re-baseline if intended")
+                else:
+                    verdict = "FAIL"
+                    rep.failures.append(msg + (f"; note: {tdiff_text}" if tdiffs else ""))
             elif w < -det_fail:
                 verdict = "better"
         else:
@@ -279,6 +319,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--det-fail", type=float, default=DET_FAIL_PCT, metavar="PCT")
     ap.add_argument("--strict-wall", action="store_true",
                     help="treat the host as a strict class (fail at 5 %%, CPU must match)")
+    ap.add_argument("--on-toolchain-diff", choices=("fail", "warn"), default="fail",
+                    help="deterministic regressions when compiler or libc differ from the baseline: fail (default) or warn")
     ap.add_argument("--merge", metavar="OUT", help="write the per-benchmark median of the given results to OUT")
     ap.add_argument("--validate", action="store_true", help="only check that the given files are valid results")
     ap.add_argument("--self-test", action="store_true")
@@ -319,6 +361,7 @@ def main(argv: list[str]) -> int:
         wall_warn=args.wall_warn,
         wall_fail=args.wall_fail,
         strict=True if args.strict_wall else None,
+        on_toolchain_diff=args.on_toolchain_diff,
     )
     print(render(rep, base, new))
     if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -346,6 +389,12 @@ def _wall(name, value, better="higher", work=1000, spread=2.0, unit="M/s"):
 
 def _det(name, value):
     return {"name": name, "kind": "deterministic", "unit": "blocks", "better": "lower", "value": value}
+
+
+def _icount(name, value, work=1000):
+    """Instruction-count result as written by tools/bench_icount.py."""
+    return {"name": name, "kind": "deterministic", "unit": "host_insn/guest_insn", "better": "lower",
+            "value": value, "work_per_call": work, "work_unit": "instructions"}
 
 
 class SelfTest(unittest.TestCase):
@@ -409,6 +458,56 @@ class SelfTest(unittest.TestCase):
     def test_deterministic_metrics_ignore_cpu_differences(self):
         rep = compare(_doc([_det("b", 100)]), _doc([_det("b", 200)], cpu="CPU B"))
         self.assertFalse(rep.ok)
+
+    def test_cpu_difference_is_not_mentioned_for_instruction_counts(self):
+        rep = compare(_doc([_icount("i", 10.0)]), _doc([_icount("i", 10.0)], cpu="CPU B"))
+        self.assertTrue(rep.ok)
+        self.assertFalse(any("CPU differs" in n for n in rep.notes))
+        # ... also on a strict host, where a wall-clock comparison would be invalid.
+        rep = compare(_doc([_icount("i", 10.0)], host="g5mf"), _doc([_icount("i", 10.0)], host="g5mf", cpu="CPU B"))
+        self.assertTrue(rep.ok)
+
+    def test_instruction_counts_use_the_2_percent_gate_per_work_unit(self):
+        base = _doc([_icount("i", 100.0)])
+        self.assertTrue(compare(base, _doc([_icount("i", 102.0)])).ok)  # exactly 2 %
+        rep = compare(base, _doc([_icount("i", 102.5)]))
+        self.assertFalse(rep.ok)
+        self.assertIn("2.5% worse", rep.failures[0])
+        self.assertTrue(compare(base, _doc([_icount("i", 60.0)])).ok)  # improvement
+        self.assertEqual(compare(base, _doc([_icount("i", 60.0)])).rows[0][4], "better")
+
+    def test_changed_work_of_an_instruction_count_is_invalid_not_a_speedup(self):
+        rep = compare(_doc([_icount("i", 100.0, work=1000)]), _doc([_icount("i", 50.0, work=500)]))
+        self.assertFalse(rep.ok)
+        self.assertIn("workload changed", rep.failures[0])
+        # Deterministic results without work_per_call (IR sizes) are unaffected.
+        self.assertTrue(compare(_doc([_det("b", 5)]), _doc([_det("b", 5)])).ok)
+
+    def test_toolchain_difference_is_noted_and_can_downgrade_regressions_to_warnings(self):
+        old, new = "rustc 1.97.0 (aaa 2026-07-07)", "rustc 1.98.0 (bbb 2026-08-18)"
+        base = _doc([_icount("i", 100.0)], rustc=old)
+        same_patch = _doc([_icount("i", 110.0)], rustc="rustc 1.97.0 (zzz 2026-07-08)")
+        self.assertFalse(compare(base, same_patch, on_toolchain_diff="warn").ok)  # same version: still a gate
+        worse = _doc([_icount("i", 110.0)], rustc=new)
+        rep = compare(base, worse)
+        self.assertFalse(rep.ok)
+        self.assertIn("toolchain differs", rep.failures[0])
+        self.assertTrue(any("toolchain differs" in n for n in rep.notes))
+        rep = compare(base, worse, on_toolchain_diff="warn")
+        self.assertTrue(rep.ok)
+        self.assertEqual(len(rep.warnings), 1)
+        self.assertEqual(rep.rows[0][4], "WARN")
+        # No difference, no downgrade; a missing rustc field never counts as a difference.
+        self.assertFalse(compare(_doc([_icount("i", 100.0)]), _doc([_icount("i", 110.0)]), on_toolchain_diff="warn").ok)
+        # glibc counts as well; unknown on one side is no difference.
+        gl = lambda v: _doc([_icount("i", 100.0 if v == "glibc 2.39" else 110.0)], config={"quick": False, "libc": v})
+        rep = compare(gl("glibc 2.39"), gl("glibc 2.41"))
+        self.assertFalse(rep.ok)
+        self.assertIn("libc glibc 2.39 -> glibc 2.41", rep.failures[0])
+        self.assertTrue(compare(gl("glibc 2.39"), gl("glibc 2.41"), on_toolchain_diff="warn").ok)
+        self.assertEqual(toolchain_diffs({"config": {"libc": "glibc 2.39"}}, {"config": {}}), [])
+        self.assertEqual(rustc_version({"rustc": old}), "1.97.0")
+        self.assertIsNone(rustc_version({}))
 
     def test_debug_and_quick_results_are_rejected(self):
         base = _doc([_wall("a", 1.0)])

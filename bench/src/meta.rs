@@ -106,9 +106,44 @@ pub fn iso8601_utc(unix_secs: i64) -> String {
     )
 }
 
-/// Everything that describes a run, as JSON.
+/// Everything that describes a wall-clock run, as JSON.
 #[must_use]
 pub fn collect(host_id: &str, cfg: &Config, quick: bool, seed: u64, filter: Option<&str>) -> Json {
+    let opt_or_null = |o: Option<String>| o.map_or(Json::Null, Json::Str);
+    let config = Json::obj([
+        ("quick", Json::Bool(quick)),
+        (
+            "warmup_ms",
+            Json::Int(i64::try_from(cfg.warmup.as_millis()).unwrap_or(-1)),
+        ),
+        (
+            "sample_ms",
+            Json::Int(i64::try_from(cfg.sample_time.as_millis()).unwrap_or(-1)),
+        ),
+        (
+            "samples",
+            Json::Int(i64::try_from(cfg.samples).unwrap_or(-1)),
+        ),
+        ("filter", opt_or_null(filter.map(str::to_owned))),
+        // Only payload bytes depend on the seed; work counts do not.
+        ("seed", Json::Int(i64::try_from(seed).unwrap_or(-1))),
+    ]);
+    collect_with(host_id, config)
+}
+
+/// Metadata for an instruction-count run (`tools/bench_icount.py` adds the valgrind version and
+/// the repetitions to `config` itself). Same layout as [`collect`], `config.mode` is `icount`.
+#[must_use]
+pub fn collect_icount(host_id: &str, seed: u64) -> Json {
+    let config = Json::obj([
+        ("quick", Json::Bool(false)),
+        ("mode", Json::str("icount")),
+        ("seed", Json::Int(i64::try_from(seed).unwrap_or(-1))),
+    ]);
+    collect_with(host_id, config)
+}
+
+fn collect_with(host_id: &str, config: Json) -> Json {
     let cpuinfo = parse_cpuinfo(&fs::read_to_string("/proc/cpuinfo").unwrap_or_default());
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -171,27 +206,7 @@ pub fn collect(host_id: &str, cfg: &Config, quick: bool, seed: u64, filter: Opti
                 ("arch", Json::str(std::env::consts::ARCH)),
             ]),
         ),
-        (
-            "config",
-            Json::obj([
-                ("quick", Json::Bool(quick)),
-                (
-                    "warmup_ms",
-                    Json::Int(i64::try_from(cfg.warmup.as_millis()).unwrap_or(-1)),
-                ),
-                (
-                    "sample_ms",
-                    Json::Int(i64::try_from(cfg.sample_time.as_millis()).unwrap_or(-1)),
-                ),
-                (
-                    "samples",
-                    Json::Int(i64::try_from(cfg.samples).unwrap_or(-1)),
-                ),
-                ("filter", opt_or_null(filter.map(str::to_owned))),
-                // Only payload bytes depend on the seed; work counts do not.
-                ("seed", Json::Int(i64::try_from(seed).unwrap_or(-1))),
-            ]),
-        ),
+        ("config", config),
     ])
 }
 
@@ -208,6 +223,23 @@ mod tests {
         assert!(c.avx2);
         assert!(!c.avx512f, "only the first entry's flags count");
         assert_eq!(parse_cpuinfo("").model, "unknown");
+    }
+
+    #[test]
+    fn icount_meta_has_the_common_layout_and_mode() {
+        let text = collect_icount("icount-x86_64", 7).to_pretty_string();
+        for key in [
+            "\"commit\"",
+            "\"cpu\"",
+            "\"profile\"",
+            "\"rustc\"",
+            "\"os\"",
+        ] {
+            assert!(text.contains(key), "{key} missing");
+        }
+        assert!(text.contains("\"mode\": \"icount\""));
+        assert!(text.contains("\"host_id\": \"icount-x86_64\""));
+        assert!(text.contains("\"seed\": 7"));
     }
 
     #[test]

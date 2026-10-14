@@ -16,8 +16,15 @@ CPP_CMAKE_ARGS ?=
 BENCH_HOST_ID ?= dev
 BENCH_OUT     ?= bench/results/$(BENCH_HOST_ID).json
 BENCH_ARGS    ?=
+# Instruction-count benchmarks (deterministic, valgrind --tool=callgrind; tools/bench_icount.py).
+# The host id is a machine *class* (architecture), not a machine: counts do not depend on load.
+BENCH_ICOUNT_HOST_ID ?= icount-x86_64
+BENCH_ICOUNT_OUT     ?= bench/results/$(BENCH_ICOUNT_HOST_ID).json
+BENCH_ICOUNT_BIN     ?= bench/target/release/ritsu-bench
+BENCH_ICOUNT_ARGS    ?= --repeat 2
+BENCH_ICOUNT_COMPARE_ARGS ?=
 
-.PHONY: help fmt fmt-check lint lint-aux test-rust test-aux fuzz-replay bench-test bench bench-compare bench-check cpp cpp-fmt-check fuzz-smoke fuzz-smoke-rust fuzz-smoke-cpp graph links status test check clean
+.PHONY: help fmt fmt-check lint lint-aux test-rust test-aux fuzz-replay bench-test bench bench-compare bench-icount bench-icount-compare bench-check cpp cpp-fmt-check fuzz-smoke fuzz-smoke-rust fuzz-smoke-cpp graph links status test check clean
 
 help:
 	@echo "Ritsu make targets:"
@@ -32,7 +39,9 @@ help:
 	@echo "  bench-test     unit tests of the benchmark workloads (hand-derived expected results)"
 	@echo "  bench          run the benchmark suite (release) and write BENCH_OUT=bench/results/<BENCH_HOST_ID>.json"
 	@echo "  bench-compare  bench + compare against bench/baselines/<BENCH_HOST_ID>.json (tools/bench_compare.py)"
-	@echo "  bench-check    quick smoke run of the bench pipeline + bench_compare.py --self-test (part of check)"
+	@echo "  bench-icount   deterministic host-instruction counts per workload (callgrind, needs valgrind) -> BENCH_ICOUNT_OUT"
+	@echo "  bench-icount-compare  bench-icount + gate against bench/baselines/<BENCH_ICOUNT_HOST_ID>.json (2 %, tools/bench_compare.py)"
+	@echo "  bench-check    quick smoke run of the bench pipeline + self-tests of bench_compare.py and bench_icount.py (part of check)"
 	@echo "  cpp            configure, build and ctest compiler/air2spirv (Ninja, build/air2spirv)"
 	@echo "  cpp-fmt-check  clang-format --dry-run --Werror on compiler/ C++ sources"
 	@echo "  fuzz-smoke     60 s per fuzz target, Rust (cargo-fuzz) + C++ (libFuzzer); FUZZ_TIME=<s>; skips if tools are missing"
@@ -121,9 +130,20 @@ bench:
 bench-compare: bench
 	$(PYTHON) tools/bench_compare.py bench/baselines/$(BENCH_HOST_ID).json $(BENCH_OUT)
 
+# Instruction counts: no timing involved, so the result is the same on a loaded cloud runner and
+# the numbers may gate CI (bench/README.md, "Befehlszahlen"). Takes about 20 s plus the build.
+bench-icount:
+	$(CARGO) build --release --manifest-path bench/Cargo.toml
+	$(PYTHON) tools/bench_icount.py --bin $(BENCH_ICOUNT_BIN) --host-id $(BENCH_ICOUNT_HOST_ID) --output $(BENCH_ICOUNT_OUT) $(BENCH_ICOUNT_ARGS)
+
+bench-icount-compare: bench-icount
+	$(PYTHON) tools/bench_compare.py $(BENCH_ICOUNT_COMPARE_ARGS) bench/baselines/$(BENCH_ICOUNT_HOST_ID).json $(BENCH_ICOUNT_OUT)
+
 # Pipeline smoke test without meaningful numbers: debug build, --quick, schema validation.
 bench-check:
 	$(PYTHON) tools/bench_compare.py --self-test
+	$(PYTHON) tools/bench_icount.py --self-test
+	$(CARGO) run --manifest-path bench/Cargo.toml -- --allow-debug --icount-run bench_virtq_pop_push_1desc --reps 1
 	$(CARGO) run --manifest-path bench/Cargo.toml -- --allow-debug --quick --filter bench_virtq --output build/bench-smoke.json
 	$(PYTHON) tools/bench_compare.py --validate build/bench-smoke.json bench/baselines/*.json
 

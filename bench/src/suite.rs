@@ -254,6 +254,47 @@ pub fn deterministic() -> Vec<Deterministic> {
     out
 }
 
+/// Closure calls per process for the instruction-count mode (`tools/bench_icount.py`): the driver
+/// runs each workload with `reps` and `2 * reps` calls under callgrind and takes the difference.
+/// The values keep one call-count step in the order of 10^8 host instructions at most (callgrind
+/// runs 20-50x slower than native) while the difference stays far above the 1-instruction
+/// resolution; they are not tuned per machine. `None` for unknown names.
+#[must_use]
+pub fn icount_reps(name: &str) -> Option<u64> {
+    Some(match name {
+        "bench_t0_countdown" | "bench_t0_mix" => 1,
+        "bench_ir_verify_cbz_256" | "bench_ir_verify_cbz_1024" => 8,
+        "bench_ir_verify_cbz_4096" | "bench_ir_lower_cbz_4096" => 2,
+        "bench_gpu_proto_decode_mixed"
+        | "bench_gpu_proto_decode_bulk"
+        | "bench_gpu_proto_decode_reply" => 2,
+        "bench_virtq_pop_push_1desc" | "bench_virtq_pop_push_3desc" => 2,
+        _ => return None,
+    })
+}
+
+/// Instruction-count mode: builds the workload `name` (setup, not repeated) and calls its closure
+/// `reps` times. Returns the work units of one call; fails if the work differs between calls or
+/// the name is unknown. Nothing is timed, the process is meant to run under `valgrind`.
+pub fn icount_run(name: &str, ctx: &Ctx, reps: u64) -> Result<u64, String> {
+    let bench = benches()
+        .into_iter()
+        .find(|b| b.name == name)
+        .ok_or_else(|| format!("unknown benchmark {name:?}"))?;
+    if reps == 0 {
+        return Err("reps must be positive".to_owned());
+    }
+    let mut f = (bench.setup)(ctx);
+    let work = black_box(f());
+    for _ in 1..reps {
+        let again = black_box(f());
+        if again != work {
+            return Err(format!("{name}: work per call differs ({work} vs {again})"));
+        }
+    }
+    Ok(work)
+}
+
 /// Runs every benchmark whose name contains `filter` (all if `None`) and returns the result
 /// document. `progress` is called with a line of text after each benchmark.
 pub fn run(
@@ -353,6 +394,39 @@ mod tests {
             .find(|d| d.name == "ir_cbz_4096_blocks")
             .expect("metric exists");
         assert_eq!(blocks.value, 8193);
+    }
+
+    #[test]
+    fn every_benchmark_has_icount_reps() {
+        for b in benches() {
+            assert!(
+                icount_reps(b.name).is_some_and(|r| r > 0),
+                "{} has no icount_reps entry",
+                b.name
+            );
+        }
+        assert_eq!(icount_reps("nope"), None);
+    }
+
+    #[test]
+    fn icount_run_returns_the_work_of_one_call() {
+        let ctx = Ctx { seed: 1 };
+        // Hand-derived: 2 + 2n instructions for the countdown; 64 rounds of floor(256 / 1) and
+        // floor(256 / 3) = 85 chains for a queue of 256 descriptors.
+        assert_eq!(
+            icount_run("bench_t0_countdown", &ctx, 2),
+            Ok(2 + 2 * u64::from(COUNTDOWN_N))
+        );
+        assert_eq!(
+            icount_run("bench_virtq_pop_push_1desc", &ctx, 3),
+            Ok(64 * 256)
+        );
+        assert_eq!(
+            icount_run("bench_virtq_pop_push_3desc", &ctx, 1),
+            Ok(64 * 85)
+        );
+        assert!(icount_run("nope", &ctx, 1).is_err());
+        assert!(icount_run("bench_t0_mix", &ctx, 0).is_err());
     }
 
     #[test]

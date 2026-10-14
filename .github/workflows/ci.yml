@@ -37,6 +37,32 @@ jobs:
       # lint-aux/test-aux: fmt + clippy + tests of fuzz/ (replays fuzz/regressions and the seed
       # corpus on stable, WP-QA-08) and bench/ (workload unit tests); bench-check: pipeline smoke test.
       - run: make fmt-check lint lint-aux test-rust test-aux bench-check graph
+      # Instruction-count gate (WP-QA-09, bench/README.md): host instructions per work unit under
+      # valgrind/callgrind, no timing, so it is reliable on shared runners (unlike wall-clock
+      # numbers). A deterministic regression above 2 % fails the job. Measured: about 10 s build +
+      # 15 s run. The toolchain floats on `stable`, so a different rustc/glibc than the baseline
+      # only warns (--on-toolchain-diff warn) until the baseline is renewed in a PR.
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends valgrind
+      - name: Instruction-count gate
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p bench/results
+          make bench-icount-compare BENCH_ICOUNT_COMPARE_ARGS="--on-toolchain-diff warn" | tee bench/results/icount-compare.txt
+      - name: Step summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f bench/results/icount-compare.txt ]; then
+            { echo '### Instruction counts (host instructions per work unit)'; echo '```'; cat bench/results/icount-compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-icount-${{ github.sha }}
+          path: bench/results/
+          retention-days: 30
 
   cpp:
     name: cpp (${{ matrix.name }})

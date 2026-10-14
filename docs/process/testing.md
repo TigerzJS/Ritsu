@@ -438,8 +438,9 @@ geteilten Runnern (zu verrauscht), aber sie haben **Regressionsschwellen**.
   Spätere System-Benchmarks (`bench/boot`, `bench/cpu`, `bench/gpu`) sind eigene Programme. Details, Liste der
   Benchmarks und Begründungen: [bench/README.md](../../bench/README.md).
 * **Zwei Messarten:**
-  * *Deterministisch* (Größen erzeugter IR, später Befehls-/Zugriffszahlen unter Valgrind, Codegröße, Zahl erzeugter
-    Host-Befehle je Gastblock, Cache-Trefferquote): **scheitert** ab **+2 %** gegenüber der Basislinie.
+  * *Deterministisch* (Größen erzeugter IR, **Host-Befehlszahlen unter Valgrind** (`make bench-icount`, s. u.), später
+    Codegröße, Zahl erzeugter Host-Befehle je Gastblock, Cache-Trefferquote): **scheitert** ab **+2 %** gegenüber der
+    Basislinie.
   * *Wanduhrzeit* (Durchsatz, Latenz): auf geteilten Runnern nur **Warnung** ab **+10 %**; verbindlich
     (Fehler ab +5 %) nur auf dem self-hosted G5-MF-Runner mit festgelegter Frequenz/Governor.
   Jede Wanduhr-Messung trägt `work_per_call`, einen deterministischen Fingerabdruck der Arbeit; weicht er von der
@@ -447,6 +448,16 @@ geteilten Runnern (zu verrauscht), aber sie haben **Regressionsschwellen**.
 * **Rauschen (gemessen):** Auf einem geteilten Cloud-Host (4 vCPU) streuen die Mediane zwischen fünf bzw. sechs vollständigen
   Läufen um 8 bis 66 % (Spannweite relativ zum Median). Die +10 %-Warnung ist dort ein Hinweis, kein Urteil; deshalb vergleicht der Nachtjob den Median
   mehrerer Läufe, und nur deterministische Metriken können auf Cloud-Runnern scheitern.
+* **Befehlszahlen (WP-QA-09, das Gate für geteilte Runner):** `tools/bench_icount.py` misst je Workload der Wanduhr-Suite die
+  ausgeführten Host-Befehle mit `valgrind --tool=callgrind`: Differenz der Zählungen für N und 2N Aufrufe der
+  Workload-Closure (Start- und Aufbaukosten kürzen sich heraus), geteilt durch `work_per_call`, also Host-Befehle je
+  Gastbefehl (T0, früher Indikator für Q-PERF-1), je Byte, je Block, je Queue-Operation. Gemessene Wiederholbarkeit 0,00000 %
+  (neun Messungen je Workload bitgleich); damit ist 2 % ein Gate, das auf Cloud-Runnern nie aus Rauschen feuert. Bedingungen
+  für diese Eigenschaft: Release-Profil, feste `GLIBC_TUNABLES` (sonst verschiebt die CPU-abhängige memcpy-Auswahl der libc
+  die Zahlen um bis zu 28 %), Basislinie je Maschinenklasse (`icount-x86_64`) mit eingetragener rustc- und glibc-Version.
+  Weicht die Toolchain ab, nennt `bench_compare.py` das; die CI läuft dann mit `--on-toolchain-diff warn`. Das Gate läuft im
+  Job `rust` von `ci.yml` bei jedem Push/PR (rund 25 s). Details, Messwerte und Begründung der 2 %:
+  [bench/README.md](../../bench/README.md#befehlszahlen-deterministisches-gate-wp-qa-09).
 * **Basislinien:** `bench/baselines/<host-id>.json`, eingecheckt, Aktualisierung nur per PR mit Begründung und
   Vorher/Nachher-Tabelle im PR-Text. Die `host-id` benennt Maschinenklasse (`ci-x86`, `g5mf`, `ci-arm64`). Erzeugt aus
   mehreren Läufen mit `tools/bench_compare.py --merge`. Eine Basislinie einer anderen CPU erzeugt auf Cloud-Runnern
@@ -458,8 +469,9 @@ geteilten Runnern (zu verrauscht), aber sie haben **Regressionsschwellen**.
   `jq -c '.results[]'` liefert die Zeilen. Der Nachtjob [`bench.yml`](../../.github/workflows/bench.yml) lädt das
   Dokument als Artefakt hoch; der Datenbranch `bench-data` (kein Wachstum im Hauptbranch) ist noch nicht angelegt.
   Daraus entsteht der Verlauf pro Metrik (Q-PERF-1…4).
-* **CI:** nur nachts und manuell (`bench.yml`), nie bei Push/PR. `make check` führt nur den Rauchtest der Pipeline aus
-  (`make bench-check`), keine Messung.
+* **CI:** Wanduhr nur nachts und manuell (`bench.yml`), nie bei Push/PR. Befehlszahlen bei Push/PR (`ci.yml`, Job `rust`,
+  `make bench-icount-compare`). `make check` führt nur den Rauchtest der Pipeline aus (`make bench-check`: Selbsttests der
+  beiden Skripte, Debug-Lauf `--quick`), keine Messung; `make bench-icount-compare` braucht valgrind.
 * **Meilenstein-Zielwerte** stehen in [ARCHITECTURE.md §6](../ARCHITECTURE.md); jede Messung bezieht sich auf
   eine Q-PERF-ID.
 * Benchmarks laufen im Release-Profil (der Läufer verweigert Debug-Builds), mit festem Eingabekorpus und festem Seed
