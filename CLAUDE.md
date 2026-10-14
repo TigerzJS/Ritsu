@@ -109,6 +109,10 @@ Bericht:         Format aus §2.2
 7. **Keine Abhängigkeitszyklen.** Die Crate-Grafik in ARCHITECTURE.md §4 ist verbindlich. Neue externe
    Abhängigkeiten nur über `[workspace.dependencies]` und mit Begründung im Bericht.
 8. **Messen statt raten.** Leistungsbehauptungen nur mit Benchmark aus `bench/` und Vorher/Nachher-Zahlen.
+9. **Gemeinsamer Arbeitsbaum.** Mehrere Agenten arbeiten gleichzeitig im selben Checkout. Subagents führen **keine**
+   Git-Befehle aus, die den Arbeitsbaum oder Index verändern (`stash`, `checkout`, `switch`, `reset`, `restore`,
+   `clean`, `commit`, `merge`, `rebase`, `add`). Lesend (`status`, `diff`, `log`, `show`) ist erlaubt. Für
+   Vergleiche mit einem alten Stand: `git worktree add` in das Scratchpad oder `git show <rev>:<pfad>`.
 
 ## 4. Befehle
 

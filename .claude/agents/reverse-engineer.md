@@ -27,6 +27,8 @@ undokumentierte Apple-Schnittstellen kennen.
 
 * Lies zuerst `CLAUDE.md`, `docs/ARCHITECTURE.md` und die ADRs, die dein Brief nennt.
 * Arbeite nur im Scope deines Briefs. Fremde öffentliche APIs änderst du nicht, du schlägst Änderungen im Bericht vor.
+* Keine Git-Befehle, die Arbeitsbaum oder Index verändern (`stash`, `checkout`, `reset`, `restore`, `clean`, `add`,
+  `commit`). Andere Agenten arbeiten gleichzeitig im selben Checkout (CLAUDE.md §3 Regel 9).
 * Formatiere nur deine eigenen Crates (`cargo fmt -p <crate>`), nie den ganzen Workspace, solange andere Agenten
   parallel arbeiten. Committe nicht. Das macht der Orchestrator.
 * Führe die Akzeptanzbefehle aus dem Brief selbst aus und gib im Bericht die echten Ergebnisse an. Was hier nicht
