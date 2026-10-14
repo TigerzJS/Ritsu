@@ -15,8 +15,14 @@ lauffähig ist, wird als *übersprungen* ausgewiesen, nie als bestanden).
 
 ```bash
 make check          # fmt-check + clippy -D warnings + alle Tests (Rust + C++) + cpp-fmt-check + Crate-Graph + Doku-Links
-make test           # nur Tests (test-rust + cpp)
+make test           # nur Tests (test-rust + test-aux + cpp)
 make test-rust      # cargo test --workspace
+make test-aux       # fuzz-replay + bench-test (die eigenständigen Pakete fuzz/ und bench/, beide auf stable)
+make fuzz-replay    # fuzz/regressions/ und Seed-Korpus als normale Tests abspielen (kein nightly, kein cargo-fuzz)
+make lint-aux       # fmt --check + clippy -D warnings für fuzz/ und bench/ (Teil von `make check`)
+make bench          # Benchmark-Suite (Release) -> bench/results/<BENCH_HOST_ID>.json; nicht Teil von `make check`
+make bench-compare  # bench + Vergleich mit bench/baselines/<BENCH_HOST_ID>.json (tools/bench_compare.py)
+make bench-check    # Rauchtest der Benchmark-Pipeline + Selbsttest des Vergleichsskripts (Teil von `make check`)
 make cpp            # air2spirv: CMake/Ninja-Build + ctest (überspringt mit Hinweis, solange das Projekt fehlt)
 make cpp-fmt-check  # clang-format --dry-run --Werror (Teil von `make check`; überspringt sich, wenn clang-format fehlt)
 make fuzz-smoke     # 60 s je Fuzz-Target (Rust: cargo-fuzz/nightly, C++: libFuzzer/clang); FUZZ_TIME=<s>; überspringt sauber, wenn Werkzeuge fehlen
@@ -25,7 +31,8 @@ make links          # relative Links in *.md (tools/check_md_links.py)
 cargo test -p ritsu-dbt -- --nocapture <filter>    # einzelner Test
 ```
 
-`make check` muss vor jedem Commit grün sein (CLAUDE.md §4). Die CI (`.github/workflows/ci.yml`) ruft dieselben
+`make check` muss vor jedem Commit grün sein (CLAUDE.md §4); es enthält `lint-aux`, `test-aux` (damit die Fuzz-Regressionen,
+§5.3) und `bench-check`. Die CI (`.github/workflows/ci.yml`) ruft dieselben
 `make`-Ziele auf. Es gibt keine Prüfung, die nur in der CI existiert.
 
 ## 2. Testpyramide
@@ -283,6 +290,11 @@ Datei dokumentierten Byte-Format statt `arbitrary`, damit Seeds von Hand erzeugt
   bleibt auf `stable`). Strukturbewusste Eingaben über `arbitrary`.
 * **C++:** libFuzzer (`-fsanitize=fuzzer,address,undefined`) als optionales CMake-Target
   (`AIR2SPIRV_BUILD_FUZZERS=ON`), nur mit Clang.
+* Die Harness-Logik jedes Targets steht als gewöhnliche Funktion `ritsu_fuzz::harness::<ziel>::run(&[u8])` in
+  `fuzz/src/harness/`; `fuzz/fuzz_targets/fuzz_<ziel>.rs` leitet nur dorthin weiter. Dieselbe Funktion läuft unter
+  libFuzzer (nightly) und in `cargo test` (stable, §5.3). Neues Target: Modul, Eintrag in `harness::TARGETS`,
+  Datei in `fuzz_targets/`, `[[bin]]` in `fuzz/Cargo.toml` und CI-Matrix; `fuzz/tests/replay.rs` schlägt fehl, wenn diese
+  Listen auseinanderlaufen oder ein Korpus-/Regressionsverzeichnis keinem Target gehört.
 * Die Fuzz-Funktionen rufen dieselbe öffentliche Einstiegsfunktion wie der Produktionscode. Es gibt keine
   „Fuzz-only“-Pfade im Parser.
 * Harte Grenzen gegen Hänger und Speicherexplosion: libFuzzer-`-timeout` und `-rss_limit_mb` sind gesetzt; ein
@@ -302,6 +314,11 @@ Datei dokumentierten Byte-Format statt `arbitrary`, damit Seeds von Hand erzeugt
 * Abstürze (`artifact-*`) werden minimiert (`cargo fuzz tmin`), als Regressionseingabe unter
   `fuzz/regressions/<target>/` eingecheckt und von einem normalen `cargo test` abgespielt (Regressionstest, §3.1).
   Erst danach wird der Fehler behoben.
+* **Abspielen (WP-QA-08):** `make fuzz-replay` (= `cargo test --manifest-path fuzz/Cargo.toml`, Teil von `make test`
+  und `make check`, läuft in der `rust`-CI auf stable) schickt jede Datei unter `fuzz/regressions/<target>/` und
+  `fuzz/corpus/<target>/` durch die Harness-Funktion ihres Targets. Ein Fehlschlag nennt Datei, Panic-Meldung und den
+  Befehl `cargo +nightly fuzz run <target> <datei>`. Der Test beweist seine Wirkung: Mit dem Fix von `MmioBus`
+  (Basisausrichtung) wieder entfernt, schlägt die Regression `fuzz_mmio_bus/unaligned_base_offset_misaligned` rot fehl.
 
 ### 5.4 Fuzzing in der CI
 
@@ -415,23 +432,38 @@ Grundsatz: **Was nicht läuft, wird sichtbar übersprungen**, nie grün gemeldet
 Leistungsbehauptungen gelten nur mit Messung (CLAUDE.md §3 Regel 8). Benchmarks sind **keine** Pass/Fail-Tests auf
 geteilten Runnern (zu verrauscht), aber sie haben **Regressionsschwellen**.
 
-* **Struktur:** Mikro-Benchmarks pro Crate (Rust, `criterion` oder `iai-callgrind`; die Abhängigkeit kommt über
-  `[workspace.dependencies]`), System-Benchmarks (`bench/boot`, `bench/cpu`, `bench/gpu`) als eigene Programme.
-  Details: [bench/README.md](../../bench/README.md).
+* **Struktur:** `bench/` ist ein eigenes Cargo-Paket `ritsu-bench` mit eigenem `[workspace]` (wie `fuzz/`, kein
+  Mitglied des Haupt-Workspace; `make lint-aux` und `make test-aux` prüfen es). Der Harness ist eigener Code (std only:
+  Aufwärmen, Kalibrierung, Stichproben, Median/MAD) statt `criterion`: keine neue Abhängigkeit, eigenes Ergebnisformat.
+  Spätere System-Benchmarks (`bench/boot`, `bench/cpu`, `bench/gpu`) sind eigene Programme. Details, Liste der
+  Benchmarks und Begründungen: [bench/README.md](../../bench/README.md).
 * **Zwei Messarten:**
-  * *Deterministisch* (Befehls-/Zugriffszahlen unter Valgrind/`iai-callgrind`, Codegröße, Zahl erzeugter
+  * *Deterministisch* (Größen erzeugter IR, später Befehls-/Zugriffszahlen unter Valgrind, Codegröße, Zahl erzeugter
     Host-Befehle je Gastblock, Cache-Trefferquote): **scheitert** ab **+2 %** gegenüber der Basislinie.
   * *Wanduhrzeit* (Durchsatz, Latenz): auf geteilten Runnern nur **Warnung** ab **+10 %**; verbindlich
     (Fehler ab +5 %) nur auf dem self-hosted G5-MF-Runner mit festgelegter Frequenz/Governor.
+  Jede Wanduhr-Messung trägt `work_per_call`, einen deterministischen Fingerabdruck der Arbeit; weicht er von der
+  Basislinie ab, ist der Vergleich ungültig (Fehler), nie eine Beschleunigung.
+* **Rauschen (gemessen):** Auf einem geteilten Cloud-Host (4 vCPU) streuen die Mediane zwischen fünf bzw. sechs vollständigen
+  Läufen um 8 bis 66 % (Spannweite relativ zum Median). Die +10 %-Warnung ist dort ein Hinweis, kein Urteil; deshalb vergleicht der Nachtjob den Median
+  mehrerer Läufe, und nur deterministische Metriken können auf Cloud-Runnern scheitern.
 * **Basislinien:** `bench/baselines/<host-id>.json`, eingecheckt, Aktualisierung nur per PR mit Begründung und
-  Vorher/Nachher-Tabelle im PR-Text. Die `host-id` benennt Maschinenklasse (`ci-x86`, `g5mf`, `ci-arm64`).
-* **Ergebnisse speichern:** Jeder Lauf schreibt eine JSON-Zeile je Messung (Name, Wert, Einheit, Streuung,
-  Commit, Rust-/Compiler-Version, CPU-Modell, Datum, Seed). CI lädt sie als Artefakt hoch; Nachtläufe
-  hängen sie an den Datenbranch `bench-data` an (kein Wachstum im Hauptbranch). Daraus entsteht der
-  Verlauf pro Metrik (Q-PERF-1…4).
+  Vorher/Nachher-Tabelle im PR-Text. Die `host-id` benennt Maschinenklasse (`ci-x86`, `g5mf`, `ci-arm64`). Erzeugt aus
+  mehreren Läufen mit `tools/bench_compare.py --merge`. Eine Basislinie einer anderen CPU erzeugt auf Cloud-Runnern
+  einen Hinweis (Wanduhr-Deltas unterdrückt), auf `g5mf` einen Fehler.
+* **Ergebnisse speichern:** Jeder Lauf schreibt **ein JSON-Dokument** (`schema` 1) mit `meta` (Commit, `dirty`,
+  Rust-/Compiler-Version, Profil, CPU-Modell aus `/proc/cpuinfo`, Governor, Kernel, Konfiguration, Seed, Datum) und
+  `results` (je Messung: Name, Art, Q-PERF-ID, Einheit, Richtung, Median, MAD, Streuung, Min/Max, Stichproben). Die
+  früher geplante „JSON-Zeile je Messung“ entfällt zugunsten eines Dokuments, das Meta einmal trägt;
+  `jq -c '.results[]'` liefert die Zeilen. Der Nachtjob [`bench.yml`](../../.github/workflows/bench.yml) lädt das
+  Dokument als Artefakt hoch; der Datenbranch `bench-data` (kein Wachstum im Hauptbranch) ist noch nicht angelegt.
+  Daraus entsteht der Verlauf pro Metrik (Q-PERF-1…4).
+* **CI:** nur nachts und manuell (`bench.yml`), nie bei Push/PR. `make check` führt nur den Rauchtest der Pipeline aus
+  (`make bench-check`), keine Messung.
 * **Meilenstein-Zielwerte** stehen in [ARCHITECTURE.md §6](../ARCHITECTURE.md); jede Messung bezieht sich auf
   eine Q-PERF-ID.
-* Benchmarks laufen im Release-Profil, mit festem Eingabekorpus und festem Seed.
+* Benchmarks laufen im Release-Profil (der Läufer verweigert Debug-Builds), mit festem Eingabekorpus und festem Seed
+  (`RITSU_TEST_SEED` überschreibt ihn; die Arbeitsmengen hängen nicht vom Seed ab).
 
 ## 9. Hardware-in-the-Loop (später)
 

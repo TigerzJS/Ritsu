@@ -106,7 +106,13 @@
    "wp": "WP-ARCH-02",
    "summary": "ADR-0010 DBT↔Plattform als Proposed (Hybrid: Hooks + Exit-Loop + atomare Signale) – wartet auf deine Freigabe (O-14)",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-QA-04/08",
+   "summary": "Benchmark-Suite + Fuzz-Regressionen in cargo test; Messung deckte −25…35 % T0-Verlust im laufenden WP-DBT-02 auf (an CPU-Spur gemeldet)",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 15:20"
+ "updatedAt": "2026-10-14 15:45"
 }

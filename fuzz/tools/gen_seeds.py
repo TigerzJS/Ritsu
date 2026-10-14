@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the small, self-made seed corpus under fuzz/corpus/<target>/.
 
-Seeds are built from the format descriptions in the target sources (fuzz/fuzz_targets/*.rs) and
+Seeds are built from the format descriptions in the target sources (fuzz/src/harness/*.rs) and
 from the wire format in crates/ritsu-gpu-proto/src/lib.rs; they contain no third-party data
 (ADR-0008). Deterministic: running it twice yields identical files.
 

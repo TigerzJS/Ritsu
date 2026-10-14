@@ -9,13 +9,28 @@ Fuzz-Target** im selben Änderungssatz. Strategie, Invarianten und CI-Zeiten:
 | Pfad | Inhalt |
 |---|---|
 | `Cargo.toml` | Eigenes Cargo-Paket mit eigenem `[workspace]` (kein Mitglied des Haupt-Workspace), von `cargo fuzz init` erzeugt |
-| `fuzz_targets/fuzz_<parser>.rs` | Ein Target pro Parser, z. B. `fuzz_virtqueue_walk`, `fuzz_mmio_bus`, `fuzz_gpu_proto_decode` |
+| `fuzz_targets/fuzz_<parser>.rs` | Ein Target pro Parser, z. B. `fuzz_virtqueue_walk`, `fuzz_mmio_bus`, `fuzz_gpu_proto_decode`; nur der libFuzzer-Einstieg, leitet an `ritsu_fuzz::harness::<parser>::run` weiter |
+| `src/harness/<parser>.rs` | Die Harness-Logik als gewöhnliche Funktion `run(&[u8])` (Eingabeformat, Invarianten, Modell); `harness::TARGETS` ordnet Zielnamen den Funktionen zu |
+| `tests/replay.rs` | Stable-Test: spielt `regressions/` und `corpus/` durch die Harness-Funktionen ab, prüft Registry, Dateien und `[[bin]]`-Liste auf Übereinstimmung |
 | `corpus/<target>/` | Kleiner, minimierter, selbst erzeugter Startkorpus (< 5 MB je Target, keine Apple-Dateien) |
 | `regressions/<target>/` | Minimierte Absturzeingaben; werden von normalen Tests abgespielt |
 
 Das C++-Gegenstück (libFuzzer für AIR-Container-Erkennung) liegt in `compiler/air2spirv/fuzz/`.
 
-## Ausführen
+## Regressionen und Korpus ohne nightly abspielen
+
+```bash
+make fuzz-replay        # = cargo test --manifest-path fuzz/Cargo.toml (stable, Teil von `make test` und `make check`)
+```
+
+Jede Datei unter `regressions/<target>/` und `corpus/<target>/` läuft durch die Harness-Funktion ihres Targets; ein
+Fehlschlag nennt die Datei, die Panic-Meldung und den Wiederholungsbefehl für `cargo +nightly fuzz run`. Ein
+Verzeichnis ohne zugehöriges Target ist ein Fehler (seine Eingaben würden sonst nie abgespielt). Ein neues Target
+braucht: `src/harness/<name>.rs` mit `pub fn run(data: &[u8])`, Eintrag in `harness::TARGETS` und `pub mod`,
+`fuzz_targets/fuzz_<name>.rs` (drei Zeilen, siehe die vorhandenen), `[[bin]]` in `Cargo.toml` und die Liste in
+`.github/workflows/fuzz.yml`.
+
+## Ausführen (Fuzzing selbst)
 
 Voraussetzung: `cargo install cargo-fuzz` und eine nightly-Toolchain (nur für Fuzzing; der Rest des Projekts nutzt `stable`).
 

@@ -1624,12 +1624,13 @@
      "name": "WP-QA-04",
      "title": "Benchmark-Suite + Regressionsgrenzen (bench/)",
      "ms": "M2",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "",
      "accept": "",
      "owner": "test-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "11 Benchmarks, eigener Harness (std only), bench_compare.py, Nachtjob; Verifier 1,2 ms/16-KiB-Seite (linear)."
     },
     {
      "id": "WP-QA-05",
@@ -1660,7 +1661,7 @@
      "name": "WP-QA-08",
      "title": "Fuzz-Regressionen in cargo test abspielen",
      "ms": "M1",
-     "status": "wip",
+     "status": "done",
      "risk": false,
      "deps": "QA-01",
      "accept": "",
@@ -1675,6 +1676,18 @@
      "status": "open",
      "risk": false,
      "deps": "",
+     "accept": "",
+     "owner": "test-engineer",
+     "weight": 1
+    },
+    {
+     "id": "WP-QA-09",
+     "name": "WP-QA-09",
+     "title": "Befehlszahl-Benchmarks (callgrind) als rauschfreies Regressions-Gate",
+     "ms": "M2",
+     "status": "wip",
+     "risk": false,
+     "deps": "QA-04",
      "accept": "",
      "owner": "test-engineer",
      "weight": 1

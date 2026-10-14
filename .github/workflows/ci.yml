@@ -28,7 +28,15 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: make fmt-check lint test-rust graph
+        with:
+          # fuzz/ and bench/ are stand-alone packages with their own target directories.
+          workspaces: |
+            .
+            fuzz
+            bench
+      # lint-aux/test-aux: fmt + clippy + tests of fuzz/ (replays fuzz/regressions and the seed
+      # corpus on stable, WP-QA-08) and bench/ (workload unit tests); bench-check: pipeline smoke test.
+      - run: make fmt-check lint lint-aux test-rust test-aux bench-check graph
 
   cpp:
     name: cpp (${{ matrix.name }})

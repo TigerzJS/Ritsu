@@ -1,0 +1,33 @@
+# Benchmark suite (docs/process/testing.md section 8). Own [workspace]: not a member of the main
+# workspace, so the root Cargo.toml, the crate graph (tools/check_crate_graph.py) and `cargo test
+# --workspace` stay untouched. No external dependencies: the harness is std only (see README).
+[package]
+name = "ritsu-bench"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "UNLICENSED"
+
+[dependencies]
+ritsu-core = { path = "../crates/ritsu-core" }
+ritsu-mem = { path = "../crates/ritsu-mem" }
+ritsu-dbt = { path = "../crates/ritsu-dbt" }
+ritsu-virtio = { path = "../crates/ritsu-virtio" }
+ritsu-gpu-proto = { path = "../crates/ritsu-gpu-proto" }
+
+[workspace]
+
+[lib]
+name = "ritsu_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ritsu-bench"
+path = "src/main.rs"
+
+# Same settings as the root release profile so that numbers describe the shipped configuration.
+[profile.release]
+debug = "line-tables-only"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
