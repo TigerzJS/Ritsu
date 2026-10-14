@@ -145,9 +145,14 @@ Abdeckung messbar.
    der Generator erzeugt sie nur für den Test „T0 meldet Undefined Instruction bzw. verhält sich wie vom Handbuch
    erlaubt“. Implementierungsdefinierte Ergebnisse stehen in einer **Maskenliste** (`tests/dbt-ref/masks.toml`,
    je Eintrag mit Begründung und Quelle im Arm-Handbuch). Eine Maske ohne Begründung wird im Review abgelehnt.
+   Die Datei gibt es noch nicht: die Klassen von M0 haben keine implementierungsdefinierten Ergebnisse. Sie entsteht
+   zusammen mit der Maskenunterstützung des Vergleichs (`tests/dbt-ref/src/compare.rs`) bei der ersten FP-/NEON-Klasse.
 5. Der Generator gibt zu jedem Lauf einen **Abdeckungsbericht** aus: Anzahl Kodierungsklassen mit/ohne Test.
    Ziel M1: 100 % der implementierten Klassen. Eine implementierte Klasse ohne Differenztest lässt `make check`
-   (später: ein CI-Schritt) fehlschlagen.
+   (später: ein CI-Schritt) fehlschlagen. Stand WP-DBT-04: der Generator ist tabellengesteuert
+   (`tests/dbt-ref/src/generator.rs`, `CLASSES`), und `cargo test` verlangt Golden-Daten für jede Zeile der Tabelle.
+   Der Abgleich „Klasse im Decoder ↔ Zeile in `CLASSES`“ fehlt noch, die Tabelle wird von Hand gepflegt (Schuld, siehe
+   [tests/dbt-ref/README.md](../../tests/dbt-ref/README.md)); `cargo run … -- classes` listet die Abdeckung.
 
 Die Generatoren und Hilfsprogramme für die Referenzläufe liegen unter `tests/dbt-ref/` (siehe
 [tests/README.md](../../tests/README.md)).
@@ -157,22 +162,30 @@ Die Generatoren und Hilfsprogramme für die Referenzläufe liegen unter `tests/d
 Die verbindliche Referenz ist **tatsächliche AArch64-Hardware**, nicht ein anderer Emulator.
 
 * **Wo:** GitHub-gehostete Runner `ubuntu-24.04-arm` (derzeit Neoverse-basierte Server-Kerne; die genaue CPU wird
-  in den Metadaten jeder Referenzdatei festgehalten, `/proc/cpuinfo` bzw. `MIDR_EL1`). Der Job `dbt-reference`
-  in `.github/workflows/ci.yml` ist heute ein Platzhalter und wird in M1 zum Aufzeichnungs-Job.
+  in den Metadaten jeder Referenzdatei festgehalten, `/proc/cpuinfo`). Der Job `dbt-reference` in
+  `.github/workflows/ci.yml` zeichnet auf (WP-DBT-04): er baut den Runner, nimmt die Vektoren auf, prüft T0 dagegen
+  (`make dbt-ref-verify-new`), vergleicht mit der eingecheckten Datei (`make dbt-ref-compare`) und lädt das neue
+  Golden File als Artefakt hoch. Er läuft mit `continue-on-error`, bis er auf einem gehosteten arm64-Runner
+  nachweislich stabil grün war (dann Flag entfernen). Ablauf, Formate und Grenzen:
+  [tests/dbt-ref/README.md](../../tests/dbt-ref/README.md).
 * **Was läuft dort:** ein **statisch gelinktes aarch64-Linux-Testprogramm** ohne libc-Abhängigkeit
-  (Harness in Rust `no_std` oder Assembler). Es bekommt eine Datei mit Testfällen (§4.1), führt sie einzeln aus
+  (`ritsu-ref-runner`, C ohne libc, gebaut mit clang-18 + `ld.lld`). Es bekommt eine Datei mit Testfällen (§4.1), führt sie einzeln aus
   (Befehlswort in eine ausführbare Seite schreiben, Eingangszustand laden, ausführen, Endzustand sichern),
   fängt Signale ab (`SIGILL`, `SIGSEGV`, `SIGBUS`, `SIGFPE`) und schreibt Ergebnisdatensätze.
   Statische Linkung macht die Läufe unabhängig von der Runner-Distribution.
-* **Ausgabe:** ein kompaktes Binärformat (Kopf: Format-Version, Generator-Version, Master-Seed, Runner-CPU, Kernel;
-  danach je Testfall Eingangs- und Endzustand). Der Kopf ist Teil der Reproduzierbarkeit.
+* **Ausgabe:** ein kompaktes Binärformat (Kopf: Format-Version, Generator-Version, Master-Seed, Orakel, Host-CPU,
+  Kernel, Commit; danach je Testfall der Endzustand als Delta gegen den Anfangszustand). Die Anfangszustände stehen
+  nicht in der Datei: sie werden aus dem Seed neu erzeugt und über Fingerabdrücke je Klasse abgesichert. Der Kopf ist
+  Teil der Reproduzierbarkeit.
 * **Aufbewahrung:** Referenzdaten für die **feste** Regressions-Menge (Seed fest, Version gepinnt) werden
-  eingecheckt (`tests/dbt-ref/golden/`, komprimiert). Jeder Push prüft T0 gegen diese Dateien, auf x86, ohne
-  arm64-Maschine. Frische Zufalls-Seeds laufen nachts: der arm64-Job erzeugt Testfälle und Referenz, der x86-Job
-  lädt beides als Artefakt und vergleicht.
+  eingecheckt (`tests/dbt-ref/golden/`, Delta-Format statt Komprimierung: 118 047 Vektoren = 1,3 MB, Grenze 2 MB je
+  Datei). Jeder Push prüft T0 gegen diese Dateien (`make dbt-ref-check`, Teil von `make test`), auf x86, ohne
+  arm64-Maschine. Frische Zufalls-Seeds laufen nachts (`.github/workflows/dbt-ref.yml`): der arm64-Job führt die
+  Vektoren aus und lädt die Rohergebnisse als Artefakt hoch, der x86-Job erzeugt dieselben Vektoren aus dem Seed
+  und vergleicht mit T0. Lokal und in jeder CI prüft `make dbt-ref-smoke` frische Vektoren gegen qemu-user.
 * **Kosten/Verfügbarkeit:** Ob arm64-Runner für dieses Repository kostenlos nutzbar sind, hängt von der
   Repository-Sichtbarkeit ab (siehe Offene Fragen im WP-Bericht). Fallback: lokal reproduzierbar auf jedem
-  arm64-Linux-Rechner (`make dbt-ref-record` ist für M1 geplant) und Referenz-Update per PR.
+  arm64-Linux-Rechner (`make dbt-ref-record`, dann `make dbt-ref-update`) und Referenz-Update per PR.
 
 **Was die Hardware-Referenz nicht liefern kann:** Kernel-/EL1-Verhalten (Systemregister, MMU, Exceptions auf EL1),
 und PAC-Schlüssel (Linux erlaubt Userland keine festen Schlüssel). Dafür gilt §4.6.
@@ -184,7 +197,11 @@ und PAC-Schlüssel (Linux erlaubt Userland keine festen Schlüssel). Dafür gilt
 * Differenz T0 ≠ Hardware: QEMU entscheidet nicht, die Hardware hat recht. Weicht QEMU ebenfalls ab, ist das ein
   Hinweis auf eine Mehrdeutigkeit im Handbuch → Maskenliste (mit Begründung) oder Rückfrage.
 * Keine arm64-Hardware verfügbar (lokale Entwicklung): QEMU kann Referenzdaten für **Entwicklung** erzeugen. Sie
-  werden mit `oracle = "qemu"` im Kopf markiert und **nie** als Golden-Datei eingecheckt.
+  werden mit `oracle = qemu` im Kopf markiert. **Übergangsregel (WP-DBT-04):** Solange noch keine Aufnahme von
+  echter Hardware existiert, ist `tests/dbt-ref/golden/m0.golden` eine ausdrücklich *vorläufige* qemu-Aufnahme, damit
+  x86-CI und `make check` die Vergleichskette schon heute ausüben. Sobald der Job `dbt-reference` die
+  Hardware-Aufnahme liefert, ersetzt sie die Datei, und `make dbt-ref-update` verweigert danach jede Rückkehr zu
+  qemu. Bis dahin beweist ein grüner Lauf nur „T0 = qemu“, nicht „T0 = Hardware“.
 * Bekannte QEMU-Abweichungen (Fließkomma-NaN-Propagation, Flags bei einzelnen SIMD-Befehlen) werden in
   `masks.toml` je Orakel geführt.
 

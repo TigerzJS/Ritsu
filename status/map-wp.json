@@ -375,12 +375,13 @@
      "name": "WP-DBT-04",
      "title": "Differenztest-Infrastruktur, Golden Files vom Arm-Runner",
      "ms": "M1",
-     "status": "open",
+     "status": "done",
      "risk": false,
      "deps": "02",
      "accept": "",
      "owner": "dbt-engineer",
-     "weight": 1
+     "weight": 1,
+     "note": "Generator (23 Klassen), aarch64-Runner, Golden File (118 047 Vektoren, vorläufig qemu), 0 Abweichungen T0 vs qemu; arm64-Hardware-Job in CI vorbereitet."
     },
     {
      "id": "WP-DBT-05",

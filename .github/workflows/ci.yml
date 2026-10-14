@@ -37,9 +37,17 @@ jobs:
             .
             fuzz
             bench
+            tests/dbt-ref
       # lint-aux/test-aux: fmt + clippy + tests of fuzz/ (replays fuzz/regressions and the seed
       # corpus on stable, WP-QA-08) and bench/ (workload unit tests); bench-check: pipeline smoke test.
       - run: make fmt-check lint lint-aux test-rust test-aux bench-check graph
+      # test-aux includes dbt-ref-check: T0 against the checked-in golden files (tests/dbt-ref/golden,
+      # WP-DBT-04), no arm64 machine needed. The smoke run below executes fresh vectors under
+      # qemu-user (secondary oracle) with the runner built by clang + lld; missing tools fail the step.
+      - name: Install the DBT reference tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld qemu-user
+      - name: DBT differential smoke test (T0 vs qemu-user)
+        run: make dbt-ref-smoke DBT_REF_REQUIRED=1
       # Instruction-count gate (WP-QA-09, bench/README.md): host instructions per work unit under
       # valgrind/callgrind, no timing, so it is reliable on shared runners (unlike wall-clock
       # numbers). A deterministic regression above 2 % fails the job. Measured: about 10 s build +
@@ -74,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc, clang, clang-asan]
+        compiler: [gcc, clang, clang-asan, clang-asan-llvm]
         include:
           - compiler: gcc
             name: gcc
@@ -96,6 +104,15 @@ jobs:
             cxx: clang++
             build_dir: build/air2spirv-asan
             cmake_args: -DAIR2SPIRV_SANITIZE=ON
+          # Stage 3 with LLVM (WP-SC-02): pinned LLVM 18.1 from Ubuntu's llvm-18-dev
+          # (+ libzstd-dev for LLVMExports.cmake), under ASan + UBSan.
+          - compiler: clang-asan-llvm
+            name: clang (ASan+UBSan, LLVM 18)
+            cc: clang
+            cxx: clang++
+            build_dir: build/air2spirv-asan-llvm
+            cmake_args: -DAIR2SPIRV_SANITIZE=ON -DAIR2SPIRV_WITH_LLVM=ON
+            extra_packages: llvm-18-dev libzstd-dev
     env:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
@@ -107,8 +124,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build cmake clang clang-format spirv-tools spirv-headers libclang-rt-18-dev
-      - run: make cpp CPP_BUILD_DIR=${{ matrix.build_dir }} CPP_CMAKE_ARGS=${{ matrix.cmake_args }}
+            ninja-build cmake clang clang-format spirv-tools spirv-headers libclang-rt-18-dev \
+            ${{ matrix.extra_packages }}
+      - run: make cpp CPP_BUILD_DIR=${{ matrix.build_dir }} CPP_CMAKE_ARGS="${{ matrix.cmake_args }}"
       - name: clang-format check
         if: matrix.compiler == 'gcc' # formatting does not depend on the compiler
         run: make cpp-fmt-check
@@ -121,16 +139,18 @@ jobs:
       - uses: actions/checkout@v4
       - run: make links status
 
-  # Future source of reference results for the DBT differential tests
-  # (docs/process/testing.md, "Differenztests"): real arm64 hardware executes
-  # statically linked aarch64 test programs and records register/memory state.
-  # For now it only runs the ritsu-dbt unit tests on an arm64 host, which also
-  # proves the crate is portable (no x86-only assumptions in T0).
-  # continue-on-error: the arm64 hosted runners and the reference-recording
-  # pipeline are not established yet; a failure here must not block merges
-  # until this job is promoted to required (remove the flag then).
+  # Primary oracle of the DBT differential tests (docs/process/testing.md section 4.3, WP-DBT-04):
+  # real arm64 hardware runs the statically linked ritsu-ref-runner on the generated vectors.
+  #   1. T0 must reproduce the fresh hardware recording on every vector (dbt-ref-verify-new).
+  #   2. The recording is compared with the checked-in golden file (dbt-ref-compare). While that
+  #      file is still a qemu recording (header `oracle = qemu`), a difference is a finding about
+  #      qemu or about the hardware; promote the artifact with `make dbt-ref-update` once reviewed.
+  #   3. record.golden is uploaded; it is the file to check in (hardware replaces qemu).
+  # Also proves that ritsu-dbt itself builds and passes on arm64 (no x86-only assumptions in T0).
+  # continue-on-error: this job has never run on a hosted arm64 runner yet. Remove the flag after
+  # the first green runs on the repository (availability for private repositories: O-DBT-11).
   dbt-reference:
-    name: dbt-reference (arm64, placeholder)
+    name: dbt-reference (arm64 hardware)
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
     timeout-minutes: 30
@@ -138,5 +158,28 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.97.0
       - uses: Swatinem/rust-cache@v2
-      - run: uname -m
+        with:
+          workspaces: |
+            .
+            tests/dbt-ref
+      - name: Host
+        run: |
+          uname -srm
+          grep -m5 -E '^(CPU implementer|CPU architecture|CPU variant|CPU part|CPU revision)' /proc/cpuinfo || true
+          lscpu | head -n 20 || true
       - run: cargo test -p ritsu-dbt
+      - name: Install the runner toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld
+      - name: Record the vectors on this CPU
+        run: make dbt-ref-record
+      - name: T0 against the hardware recording
+        run: make dbt-ref-verify-new
+      - name: Hardware recording against the checked-in golden file
+        if: always()
+        run: make dbt-ref-compare
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dbt-ref-golden-${{ github.sha }}
+          path: build/dbt-ref/record.golden
+          retention-days: 30

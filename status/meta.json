@@ -142,7 +142,13 @@
    "wp": "WP-ARCH-05",
    "summary": "ADR-0012 Bindungsmodell (Proposed) + Belegbericht R-ARCH-07 – wartet auf Freigabe (O-16)",
    "commit": ""
+  },
+  {
+   "at": "2026-10-14",
+   "wp": "WP-DBT-04",
+   "summary": "Differenztest-Infrastruktur: 118 047 Vektoren, T0 = qemu ohne Abweichung; Hardware-Orakel auf arm64-Runnern vorbereitet",
+   "commit": ""
   }
  ],
- "updatedAt": "2026-10-14 18:55"
+ "updatedAt": "2026-10-14 19:20"
 }
