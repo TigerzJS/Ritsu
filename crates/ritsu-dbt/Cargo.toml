@@ -1,0 +1,16 @@
+[package]
+name = "ritsu-dbt"
+description = "AArch64 to x86-64 dynamic binary translator."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ritsu-core.workspace = true
+ritsu-mem.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

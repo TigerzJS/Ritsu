@@ -12,3 +12,6 @@ Entscheidungen, die kein Agent treffen darf. Neue Fragen aus Agentenberichten we
 | O-6 | Sollen **RTX 4050 und Iris Xe dieselbe Metal-Fähigkeitsmenge** melden (einfacher für Apps beim GPU-Wechsel) oder jede GPU ihre eigene (mehr Features auf der RTX)? | Siehe [gpu.md](subsystems/gpu.md) G-4 | M4 |
 | O-7 | Ist **ASTC → BC7-Transkodierung** (verlustbehaftet) als Option erlaubt, oder nur verlustfrei nach RGBA8 (mehr VRAM)? | Siehe gpu.md G-5 | M5 |
 | O-8 | Neue Abhängigkeiten für den GPU-Pfad: `ash` (Vulkan), `gpu-allocator` oder eigener Allocator? | Siehe gpu.md G-12 | WP-GPU-03 |
+| O-9 | **PAC-Algorithmus** im Gast: echtes QARMA (langsam, exakt) oder schnelle eigene Funktion (Gast braucht nur Selbstkonsistenz)? | Siehe [dbt.md](subsystems/dbt.md) O-DBT-4 | WP-DBT (PAC) |
+| O-10 | Ist die **ABA-Abweichung** der `LDXR/STXR`-Emulation über `CMPXCHG` akzeptabel? | Siehe dbt.md O-DBT-5 | M3 |
+| O-11 | Neue Abhängigkeiten für den DBT: Software-FP (`rustc_apfloat`), x86-Emitter (`iced-x86`/`dynasmrt` oder eigener), BLAKE3 für den Cache | Siehe dbt.md O-DBT-8…10 | M2 |
