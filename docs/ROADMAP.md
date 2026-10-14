@@ -33,7 +33,7 @@ nicht gegen einen echten Gast.
 | WP-M0-ARCH | ARCHITECTURE.md, ADR-0001…0008, CLAUDE.md, Agenten, Skills, Prozess-Doku | Orchestrator | erledigt |
 | WP-M0-DBT | dbt.md + Skelett `ritsu-dbt`/`ritsu-mem` (Decoder-Teilmenge, T0, TLB) | dbt-engineer | erledigt |
 | WP-M0-GPU | gpu.md + Skelett `ritsu-gpu-proto`/`ritsu-gpu-host` (Protokoll-Decoder, Handles, Caps) | gpu-engineer | erledigt |
-| WP-M0-SC | shader-compiler.md + CMake-Skelett `air2spirv` mit C-ABI | shader-compiler-engineer | in Arbeit |
+| WP-M0-SC | shader-compiler.md + CMake-Skelett `air2spirv` mit C-ABI | shader-compiler-engineer | erledigt |
 | WP-M0-PLAT | platform.md, host-os.md + Skelett `ritsu-platform`/`ritsu-virtio`/`ritsu-vmm` | platform-engineer | erledigt |
 | WP-M0-QA | testing.md, Makefile, CI, Prüfskripte | test-engineer | erledigt |
 | WP-M0-REV | Gesamt-Review des M0-Stands | code-reviewer | in Arbeit |
@@ -44,6 +44,8 @@ nicht gegen einen echten Gast.
 |---|---|---|---|
 | WP-ARCH-01 | `GuestMemory` für gleichzeitigen Zugriff mehrerer vCPU- und Geräte-Threads neu schneiden (`&self` + innere Veränderlichkeit, Speicherordnung für virtio-Ringe, Host-`mmap`-Backend). Neuer ADR, ersetzt die M0-Schnittstelle | architect | M1 |
 | WP-ARCH-03 | ADR „Gast-CPU-Feature-Baseline“: macOS wird vermutlich für eine feste CPU-Baseline (M1) kompiliert und nutzt deren Befehle ohne Blick in die ID-Register. Das widerspricht der Konsequenz „minimaler Feature-Satz“ aus ADR-0004 → neuer ADR mit ISA-Zensus (WP-DBT-19) als Grundlage | architect + dbt-engineer | M3 |
+| WP-ARCH-04 | ADR „Shader-Compiler-Isolation“: LLVM ist nicht gegen feindliches Bitcode gehärtet, und Fatal Errors lassen sich nicht abfangen → `air2spirv` in einem sandboxed Worker-Prozess statt im Host-Prozess (Q-SEC-1) | architect | M4 |
+| WP-ARCH-05 | ADR „Bindungsmodell“: Argument-Tabelle + Bindless-Heaps vs. Descriptor-Sets, gemeinsam für gpu.md und shader-compiler.md | architect + gpu-engineer + shader-compiler-engineer | WP-SC-12 |
 | WP-ARCH-02 | Schnittstelle DBT ↔ Plattform: Systemregister-Hooks (`MRS`/`MSR` für GIC-ICC), `HVC`/`SMC` (PSCI), `WFI`/`WFE`-Parken, IRQ-Pending-Flag und vCPU-Kick | architect | M3 |
 
 ## Spikes (vor den abhängigen Meilensteinen)

@@ -1,0 +1,30 @@
+# clang-format configuration for everything under compiler/ (see docs/process/coding-standards.md).
+---
+Language: Cpp
+BasedOnStyle: LLVM
+ColumnLimit: 100
+IndentWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+DerivePointerAlignment: false
+PointerAlignment: Left
+FixNamespaceComments: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"air2spirv/'
+    Priority: 1
+  - Regex: '^"'
+    Priority: 2
+  - Regex: '^<[a-z_]+\.h>$'
+    Priority: 3
+  - Regex: '^<'
+    Priority: 4
+InsertNewlineAtEOF: true
+SpaceAfterTemplateKeyword: true
+Standard: c++20
+...
