@@ -113,7 +113,7 @@ Bericht:         Format aus §2.2
 ## 4. Befehle
 
 ```bash
-make check          # fmt-check + clippy -D warnings + alle Tests (Rust + C++). Muss vor jedem Commit grün sein.
+make check          # fmt, clippy -D warnings, alle Tests (Rust + C++), Crate-Graph, Links, Status. Muss vor jedem Commit grün sein.
 make test           # nur Tests
 make fmt            # formatieren (Rust + C++)
 cargo test -p <crate>                              # ein Crate
@@ -153,6 +153,7 @@ docs/subsystems/          Detaildesign pro Subsystem (dbt, gpu, shader-compiler,
 docs/process/             Orchestrierung, Clean Room, Tests, DoD, Coding-Standards
 docs/specs/               Clean-Room-Spezifikationen (nur reverse-engineer schreibt hier)
 docs/research/            Spike-Berichte
+status/                   maschinenlesbarer Projektstand + Quelltext der Live-Übersicht
 crates/                   Rust-Host (Workspace)
 compiler/air2spirv/       AIR → SPIR-V (C++20, CMake)
 guest/                    Gast-Komponenten (nur ADR-0005 Variante G, braucht macOS-SDK)
@@ -160,3 +161,15 @@ host-os/                  Appliance-Linux-Image
 tests/ bench/ fuzz/       übergreifende Tests, Benchmarks, Fuzzing
 legacy/g5mf-sequoia/      alter, funktionierender Hackintosh (macOS 15 + NullMoth). Eingefroren, nicht anfassen.
 ```
+
+## 7. Dauerauftrag (Autopilot)
+
+Die Agents arbeiten **durchgehend** an der Roadmap. Eine stündliche Routine startet eine Runde, und jede Runde folgt
+[docs/process/autopilot.md](docs/process/autopilot.md): synchronisieren → `make check` → offene Befunde → WPs nach
+Priorität → `/wp` → Commit + Push → Status pflegen → Kurzbericht.
+
+* **Aktuelles Ziel:** steht in `status/meta.json` (`goal`) und ist immer der nächste offene Meilenstein.
+* **Statusdaten** in `status/*.json` sind Teil der Definition of Done: Jede Runde aktualisiert sie, `make status`
+  prüft sie, und danach wird die Live-Übersicht aktualisiert:
+  <https://claude.ai/artifact/AEJLPVPPQZCncXeXG5Hr8y> (privat, nur für den Projektinhaber).
+* Der Autopilot entscheidet nie, was dem Menschen vorbehalten ist (ADR-Freigaben, `O-*`-Fragen, Lizenz, Apple-Dateien).

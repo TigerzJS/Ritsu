@@ -11,7 +11,7 @@ CPP_BUILD_DIR ?= build/air2spirv
 CPP_BUILD_TYPE ?= RelWithDebInfo
 # Set CC/CXX in the environment to pick a compiler, e.g. CC=clang CXX=clang++ make cpp
 
-.PHONY: help fmt fmt-check lint test-rust cpp cpp-fmt-check graph links test check clean
+.PHONY: help fmt fmt-check lint test-rust cpp cpp-fmt-check graph links status test check clean
 
 help:
 	@echo "Ritsu make targets:"
@@ -24,8 +24,9 @@ help:
 	@echo "  cpp-fmt-check  clang-format --dry-run --Werror on compiler/ C++ sources"
 	@echo "  graph          check the crate dependency rule (tools/check_crate_graph.py)"
 	@echo "  links          check relative links in *.md files (tools/check_md_links.py)"
+	@echo "  status         validate status/*.json behind the live roadmap page"
 	@echo "  test           test-rust + cpp"
-	@echo "  check          fmt-check + lint + test + graph + links (must be green before commit)"
+	@echo "  check          fmt-check + lint + test + graph + links + status (must be green before commit)"
 	@echo "  clean          cargo clean and remove build/"
 
 .DEFAULT_GOAL := help
@@ -76,6 +77,9 @@ graph:
 links:
 	$(PYTHON) tools/check_md_links.py
 
+status:
+	$(PYTHON) tools/check_status.py
+
 test: test-rust cpp
 
 # Run sequentially (also under make -j) so the first failure is the one reported.
@@ -85,6 +89,7 @@ check:
 	$(MAKE) test
 	$(MAKE) graph
 	$(MAKE) links
+	$(MAKE) status
 
 clean:
 	$(CARGO) clean

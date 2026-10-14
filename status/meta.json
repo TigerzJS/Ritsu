@@ -1,0 +1,70 @@
+{
+ "project": "Ritsu",
+ "goal": "M1 „Erster Befehl“: statisches aarch64-Linux-ELF läuft über T0, Differenztests grün",
+ "goal_detail": "Dauerauftrag: Agents arbeiten die Roadmap in Prioritätsreihenfolge ab (docs/process/autopilot.md). Aktueller Fokus: WP-ARCH-01, WP-DBT-01…05, parallel WP-GPU-01/02 und WP-SC-02/03.",
+ "milestones": [
+  {
+   "id": "M0",
+   "name": "Fundament",
+   "status": "wip",
+   "criterion": "Struktur, ADRs, CI grün, Skelette mit Tests"
+  },
+  {
+   "id": "M1",
+   "name": "Erster Befehl",
+   "status": "open",
+   "criterion": "aarch64-Linux-ELF läuft über T0, Differenztests grün"
+  },
+  {
+   "id": "M2",
+   "name": "JIT",
+   "status": "open",
+   "criterion": "T1 differenzgetestet, erste Q-PERF-1-Zahlen"
+  },
+  {
+   "id": "M3",
+   "name": "Kernel spricht",
+   "status": "open",
+   "criterion": "XNU gibt Boot-Log über PL011 aus"
+  },
+  {
+   "id": "M4",
+   "name": "Erstes Dreieck",
+   "status": "open",
+   "criterion": "Metal-Dreieck auf RTX 4050 und Iris Xe"
+  },
+  {
+   "id": "M5",
+   "name": "Desktop",
+   "status": "open",
+   "criterion": "macOS-27-Desktop, WindowServer über Metal→Vulkan"
+  },
+  {
+   "id": "M6",
+   "name": "Benutzbar",
+   "status": "open",
+   "criterion": "AOT-Cache, T2, Q-PERF-Ziele M6, Appliance installierbar"
+  },
+  {
+   "id": "M7",
+   "name": "Metal-Breite",
+   "status": "open",
+   "criterion": "AB Tier 2, ICB, Mesh, Ray Tracing, Metal 4"
+  },
+  {
+   "id": "M8",
+   "name": "Reif",
+   "status": "open",
+   "criterion": "Q-PERF M8, Dauer-Fuzzing, ≥ 3 macOS-Builds"
+  }
+ ],
+ "runs": [
+  {
+   "at": "2026-10-14",
+   "wp": "M0",
+   "summary": "Fundament gebaut: 5 Agents parallel, 177 Rust- + 55 C++-Tests grün, Review läuft",
+   "commit": "547ec11"
+  }
+ ],
+ "updatedAt": "2026-10-14 12:15"
+}

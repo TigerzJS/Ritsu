@@ -68,7 +68,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: make links
+      - run: make links status
 
   # Future source of reference results for the DBT differential tests
   # (docs/process/testing.md, "Differenztests"): real arm64 hardware executes

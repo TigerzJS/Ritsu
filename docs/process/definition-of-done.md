@@ -12,5 +12,6 @@ Ein Work Package ist **erledigt**, wenn alle Punkte gelten:
 6. **Keine stillen Lücken:** Nicht Umgesetztes liefert `Error::Unimplemented` oder eine Gast-Exception und ist als
    Folge-WP eingetragen.
 7. **Clean Room** eingehalten (Checkliste in [clean-room.md](clean-room.md)).
-8. **Roadmap** aktualisiert, offene Fragen in [OPEN-QUESTIONS.md](../OPEN-QUESTIONS.md) übertragen.
+8. **Roadmap und Status** aktualisiert (`docs/ROADMAP.md`, `status/*.json`, Live-Übersicht nach
+   [autopilot.md](autopilot.md) §3), offene Fragen in [OPEN-QUESTIONS.md](../OPEN-QUESTIONS.md) übertragen.
 9. Commit nach Conventional Commits, ein Thema pro Commit.

@@ -1,0 +1,479 @@
+<title>Ritsu Status</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Semi+Condensed:wght@500;700&display=swap">
+<style>
+/* Layout: status board. Badges + milestones on top, then one treemap per coverage area (like an emulator
+   compatibility page), detail panel on click, full searchable list at the bottom. Dark-first. */
+:root {
+  color-scheme: dark;
+  --bg: #0e1213;
+  --surface: #161c1e;
+  --surface-2: #1d2427;
+  --line: #2a3337;
+  --fg: #e2e8e6;
+  --muted: #8d9a96;
+  --accent: #6cc3d5;
+  --done: #3fae55;
+  --wip: #d6a226;
+  --open: #354044;
+  --open-line: #43504f;
+  --blocked: #d0543f;
+  --cell-gap: #0e1213;
+  --font-display: "Saira Semi Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f2f4f3; --surface: #ffffff; --surface-2: #e9eeec; --line: #d3dad7; --fg: #142019; --muted: #586662;
+    --accent: #1f7f93; --done: #2e9a46; --wip: #c08910; --open: #c7d0cd; --open-line: #b3bebb; --blocked: #bf412d; --cell-gap: #f2f4f3;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f2f4f3; --surface: #ffffff; --surface-2: #e9eeec; --line: #d3dad7; --fg: #142019; --muted: #586662;
+  --accent: #1f7f93; --done: #2e9a46; --wip: #c08910; --open: #c7d0cd; --open-line: #b3bebb; --blocked: #bf412d; --cell-gap: #f2f4f3;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 14px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 64px;
+}
+.wrap { max-width: 1280px; margin: 0 auto; display: grid; gap: 28px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.01em; margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.05; }
+h2 { font-size: 20px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+header { display: grid; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 18px; }
+.head-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px; }
+.updated { color: var(--muted); font-size: 12px; }
+
+/* badges */
+.badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.badge { display: inline-flex; border-radius: 3px; overflow: hidden; font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); background: none; padding: 0; color: inherit; cursor: pointer; }
+.badge span { padding: 3px 9px; }
+.badge .k { background: var(--surface-2); color: var(--fg); }
+.badge .v { color: #0b0f0e; font-weight: 600; }
+.badge:focus-visible, .cell-focus:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* milestones */
+.ms { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 6px; }
+.ms-item { background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--open-line); padding: 8px 9px; min-width: 0; }
+.ms-item[data-s="done"] { border-top-color: var(--done); }
+.ms-item[data-s="wip"] { border-top-color: var(--wip); }
+.ms-item[data-s="blocked"] { border-top-color: var(--blocked); }
+.ms-id { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.ms-name { font-family: var(--font-display); font-weight: 700; font-size: 15px; line-height: 1.15; }
+.ms-crit { font-size: 11.5px; color: var(--muted); line-height: 1.35; margin-top: 4px; }
+@media (max-width: 900px) { .ms { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .ms { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* goal + runs */
+.goal { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 800px) { .goal { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); padding: 14px 16px; min-width: 0; }
+.goal-text { font-family: var(--font-display); font-size: 19px; font-weight: 700; line-height: 1.25; margin: 4px 0 6px; }
+.goal-detail { color: var(--muted); margin: 0; max-width: 68ch; }
+.runs { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; max-height: 220px; overflow-y: auto; }
+.runs li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 13px; }
+.runs .when { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.runs .what { min-width: 0; }
+.runs .wpid { font-family: var(--font-mono); font-weight: 600; }
+
+/* maps */
+.maps { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px 20px; }
+.map { display: grid; gap: 8px; min-width: 0; }
+.map.wide { grid-column: 1 / -1; }
+@media (max-width: 900px) { .maps { grid-template-columns: minmax(0, 1fr); } }
+.map-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px; }
+.map-head h2 { font-size: 17px; }
+.map-head .num { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.map-note { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 90ch; }
+.tm { position: relative; width: 100%; background: var(--cell-gap); border: 1px solid var(--line); overflow: hidden; touch-action: manipulation; }
+.grp { position: absolute; border: 1px solid var(--line); background: var(--cell-gap); }
+.grp-label { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; font-family: var(--font-mono); font-size: 11px; line-height: 1; padding: 3px 5px; background: var(--surface); color: var(--fg); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cell { position: absolute; background: var(--open); border: 1px solid var(--cell-gap); cursor: pointer; }
+.cell[data-s="done"] { background: var(--done); }
+.cell[data-s="wip"] { background: var(--wip); }
+.cell[data-s="blocked"] { background: var(--blocked); }
+.cell[data-r="1"]::after { content: ""; position: absolute; right: 0; top: 0; width: 0; height: 0; border-top: 6px solid var(--blocked); border-left: 6px solid transparent; opacity: 0.9; }
+.cell[data-s="blocked"][data-r="1"]::after { border-top-color: var(--fg); }
+.cell:hover, .cell.sel { outline: 2px solid var(--fg); outline-offset: -2px; z-index: 3; }
+.cell .lbl { position: absolute; inset: 2px 3px auto 3px; font-family: var(--font-mono); font-size: 10px; line-height: 1.1; color: #0b0f0e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.cell[data-s="open"] .lbl { color: var(--fg); opacity: 0.75; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; background: var(--open); border: 1px solid var(--open-line); }
+.legend i.done { background: var(--done); border-color: var(--done); }
+.legend i.wip { background: var(--wip); border-color: var(--wip); }
+.legend i.blocked { background: var(--blocked); border-color: var(--blocked); }
+.legend i.risk { background: none; border: none; width: 0; height: 0; border-top: 8px solid var(--blocked); border-left: 8px solid transparent; }
+
+/* tooltip + detail */
+.tip { position: fixed; z-index: 20; pointer-events: none; background: var(--surface); border: 1px solid var(--line); padding: 6px 9px; font-size: 12.5px; max-width: 300px; box-shadow: 0 6px 18px rgb(0 0 0 / 0.25); }
+.tip b { font-family: var(--font-mono); }
+.detail { position: sticky; bottom: env(safe-area-inset-bottom, 0px); z-index: 10; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--open-line); padding: 12px 14px; display: grid; gap: 6px; box-shadow: 0 -8px 24px rgb(0 0 0 / 0.25); }
+.detail[data-s="done"] { border-left-color: var(--done); }
+.detail[data-s="wip"] { border-left-color: var(--wip); }
+.detail[data-s="blocked"] { border-left-color: var(--blocked); }
+.detail-top { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.detail h3 { font-size: 17px; }
+.detail dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; margin: 0; font-size: 13px; }
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.x { background: none; border: 1px solid var(--line); color: var(--fg); font: inherit; padding: 2px 10px; cursor: pointer; }
+.pill { display: inline-block; font-family: var(--font-mono); font-size: 11px; padding: 1px 7px; border-radius: 2px; background: var(--open); color: var(--fg); }
+.pill[data-s="done"] { background: var(--done); color: #0b0f0e; }
+.pill[data-s="wip"] { background: var(--wip); color: #0b0f0e; }
+.pill[data-s="blocked"] { background: var(--blocked); color: #0b0f0e; }
+
+/* list */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters input, .filters select { background: var(--surface); color: var(--fg); border: 1px solid var(--line); font: inherit; padding: 6px 9px; min-width: 0; }
+.filters input { flex: 1 1 220px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); max-height: 560px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 640px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { position: sticky; top: 0; background: var(--surface-2); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.id { font-family: var(--font-mono); white-space: nowrap; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--surface); }
+.count { color: var(--muted); font-size: 12px; }
+.empty { border: 1px dashed var(--line); padding: 28px 20px; color: var(--muted); text-align: center; }
+.empty strong { color: var(--fg); display: block; font-family: var(--font-display); font-size: 18px; margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) { .cell { transition: background-color 0.4s ease; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">macOS 27 · arm64 → x86-64 · Metal → Vulkan · Gigabyte G5 MF</div>
+    <div class="head-row">
+      <h1>Ritsu Status</h1>
+      <div class="updated mono" id="updated">Lade Daten …</div>
+    </div>
+    <div class="badges" id="badges"></div>
+  </header>
+
+  <section aria-labelledby="ms-h" style="display:grid;gap:10px">
+    <div class="eyebrow" id="ms-h">Meilensteine</div>
+    <div class="ms" id="milestones"></div>
+  </section>
+
+  <section class="goal">
+    <div class="panel">
+      <div class="eyebrow">Aktuelles Ziel der Agents</div>
+      <p class="goal-text" id="goal">–</p>
+      <p class="goal-detail" id="goal-detail"></p>
+    </div>
+    <div class="panel">
+      <div class="eyebrow">Letzte Läufe</div>
+      <ul class="runs" id="runs"></ul>
+    </div>
+  </section>
+
+  <div class="legend" aria-label="Legende">
+    <span><i class="done"></i>erledigt</span>
+    <span><i class="wip"></i>in Arbeit / modelliert</span>
+    <span><i></i>offen</span>
+    <span><i class="blocked"></i>blockiert</span>
+    <span><i class="risk"></i>hohes Risiko ★</span>
+  </div>
+
+  <div class="maps" id="maps">
+    <div class="empty" style="grid-column:1/-1"><strong>Daten werden geladen</strong>Die Übersicht liest den Projektstand live aus der Datenbank dieser Seite.</div>
+  </div>
+
+  <div class="detail" id="detail" hidden aria-live="polite"></div>
+
+  <section style="display:grid;gap:10px" aria-labelledby="list-h">
+    <div class="head-row">
+      <h2 id="list-h">Alle Einträge</h2>
+      <span class="count mono" id="count"></span>
+    </div>
+    <div class="filters">
+      <label class="eyebrow" for="q" hidden>Suche</label>
+      <input id="q" type="search" placeholder="Suchen: WP-DBT-12, LDAXR, Mesh …" autocomplete="off">
+      <select id="fmap" aria-label="Bereich"><option value="">Alle Bereiche</option></select>
+      <select id="fstatus" aria-label="Status">
+        <option value="">Jeder Status</option>
+        <option value="open">offen</option>
+        <option value="wip">in Arbeit</option>
+        <option value="done">erledigt</option>
+        <option value="blocked">blockiert</option>
+      </select>
+      <select id="frisk" aria-label="Risiko">
+        <option value="">Jedes Risiko</option>
+        <option value="1">nur ★ hohes Risiko</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Bereich</th><th>Gruppe</th><th>Beschreibung</th><th>MS</th><th>Status</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  var STATUS_DE = { done: "erledigt", wip: "in Arbeit", open: "offen", blocked: "blockiert" };
+  var ORDER = { done: 0, wip: 1, blocked: 2, open: 3 };
+  var state = { maps: {}, meta: null, selected: null };
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function stat(s) { return ORDER.hasOwnProperty(s) ? s : "open"; }
+
+  // ---------- squarified treemap ----------
+  function worst(row, w, total) {
+    var s = 0, mx = 0, mn = Infinity;
+    for (var i = 0; i < row.length; i++) { var a = row[i].area; s += a; if (a > mx) mx = a; if (a < mn) mn = a; }
+    var s2 = s * s, w2 = w * w;
+    return Math.max((w2 * mx) / s2, s2 / (w2 * mn));
+  }
+  function squarify(items, x, y, w, h) {
+    var total = 0; items.forEach(function (it) { total += it.value; });
+    if (total <= 0 || w <= 0 || h <= 0) return [];
+    var scale = (w * h) / total;
+    var nodes = items.map(function (it) { return { item: it, area: it.value * scale }; });
+    var out = [], row = [];
+    var rx = x, ry = y, rw = w, rh = h;
+    function layoutRow(row) {
+      var s = 0; row.forEach(function (n) { s += n.area; });
+      if (rw >= rh) {
+        var cw = s / rh, cy = ry;
+        row.forEach(function (n) { var ch = n.area / cw; out.push({ item: n.item, x: rx, y: cy, w: cw, h: ch }); cy += ch; });
+        rx += cw; rw -= cw;
+      } else {
+        var chh = s / rw, cx = rx;
+        row.forEach(function (n) { var cww = n.area / chh; out.push({ item: n.item, x: cx, y: ry, w: cww, h: chh }); cx += cww; });
+        ry += chh; rh -= chh;
+      }
+    }
+    var i = 0;
+    while (i < nodes.length) {
+      var side = Math.min(rw, rh);
+      var n = nodes[i];
+      if (row.length === 0 || worst(row.concat([n]), side) <= worst(row, side)) { row.push(n); i++; }
+      else { layoutRow(row); row = []; }
+    }
+    if (row.length) layoutRow(row);
+    return out;
+  }
+
+  // ---------- data helpers ----------
+  function mapList() {
+    return Object.keys(state.maps).map(function (k) { return state.maps[k]; })
+      .filter(function (m) { return m && Array.isArray(m.groups); })
+      .sort(function (a, b) { return (a.order || 99) - (b.order || 99); });
+  }
+  function stats(m) {
+    var t = 0, d = 0, w = 0, n = 0, nd = 0;
+    m.groups.forEach(function (g) { (g.items || []).forEach(function (it) {
+      var wt = Number(it.weight) > 0 ? Number(it.weight) : 1; t += wt; n++;
+      if (stat(it.status) === "done") { d += wt; nd++; } else if (stat(it.status) === "wip") w += wt;
+    }); });
+    return { pct: t ? (100 * d) / t : 0, wipPct: t ? (100 * w) / t : 0, n: n, nd: nd };
+  }
+  function pctColor(p) { return p >= 75 ? "var(--done)" : p >= 25 ? "var(--wip)" : "var(--muted)"; }
+  function fmtPct(p) { return (p >= 10 || p === 0 ? p.toFixed(1) : p.toFixed(2)) + "%"; }
+
+  // ---------- render: header ----------
+  function renderHeader() {
+    var maps = mapList();
+    $("badges").innerHTML = maps.map(function (m) {
+      var s = stats(m);
+      return '<button class="badge" type="button" data-jump="' + esc(m.id) + '"><span class="k">' + esc(m.title) +
+        '</span><span class="v mono" style="background:' + pctColor(s.pct) + '">' + fmtPct(s.pct) + "</span></button>";
+    }).join("");
+    var meta = state.meta;
+    if (!meta) return;
+    $("goal").textContent = meta.goal || "–";
+    $("goal-detail").textContent = meta.goal_detail || "";
+    var ms = Array.isArray(meta.milestones) ? meta.milestones : [];
+    $("milestones").innerHTML = ms.map(function (m) {
+      return '<div class="ms-item" data-s="' + stat(m.status) + '"><div class="ms-id">' + esc(m.id) + " · " + esc(STATUS_DE[stat(m.status)]) +
+        '</div><div class="ms-name">' + esc(m.name) + '</div><div class="ms-crit">' + esc(m.criterion) + "</div></div>";
+    }).join("");
+    var runs = Array.isArray(meta.runs) ? meta.runs.slice().reverse() : [];
+    $("runs").innerHTML = runs.length ? runs.map(function (r) {
+      return '<li><span class="when">' + esc(r.at) + '</span><span class="what"><span class="wpid">' + esc(r.wp) + "</span> " + esc(r.summary) +
+        (r.commit ? ' <span class="mono" style="color:var(--muted)">' + esc(r.commit) + "</span>" : "") + "</span></li>";
+    }).join("") : '<li><span class="when">–</span><span class="what">Noch keine Läufe protokolliert.</span></li>';
+    $("updated").textContent = meta.updatedAt ? "Stand " + meta.updatedAt : "";
+  }
+
+  // ---------- render: treemaps ----------
+  function renderMaps() {
+    var maps = mapList();
+    var host = $("maps");
+    if (!maps.length) {
+      host.innerHTML = '<div class="empty" style="grid-column:1/-1"><strong>Noch keine Statusdaten</strong>Die Agents schreiben den Projektstand nach jedem Lauf hierher.</div>';
+      return;
+    }
+    host.innerHTML = maps.map(function (m) {
+      var s = stats(m);
+      var wide = m.id === "wp" || m.id === "isa";
+      return '<section class="map' + (wide ? " wide" : "") + '" id="map-' + esc(m.id) + '"><div class="map-head"><h2>' + esc(m.title) + ": " +
+        fmtPct(s.pct) + '</h2><span class="num">' + s.nd + "/" + s.n + " " + esc(m.unit || "") + (s.wipPct ? " · " + fmtPct(s.wipPct) + " in Arbeit" : "") +
+        '</span></div><div class="tm" data-map="' + esc(m.id) + '"></div>' + (m.note ? '<p class="map-note">' + esc(m.note) + "</p>" : "") + "</section>";
+    }).join("");
+    layoutAll();
+  }
+
+  function layoutAll() {
+    var els = document.querySelectorAll(".tm");
+    for (var i = 0; i < els.length; i++) layoutOne(els[i]);
+  }
+  function layoutOne(el) {
+    var m = state.maps[el.getAttribute("data-map")];
+    if (!m) return;
+    var W = el.clientWidth;
+    if (!W) return;
+    var count = 0; m.groups.forEach(function (g) { count += (g.items || []).length; });
+    var narrow = W < 560;
+    var ratio = m.id === "wp" ? (narrow ? 1.25 : 0.42) : m.id === "isa" ? (narrow ? 1.5 : 0.45) : (narrow ? 1.0 : 0.62);
+    var H = Math.max(220, Math.round(W * ratio));
+    el.style.height = H + "px";
+    var groups = m.groups.map(function (g) {
+      var items = (g.items || []).slice().sort(function (a, b) { return ORDER[stat(a.status)] - ORDER[stat(b.status)]; });
+      var v = 0; items.forEach(function (it) { v += Number(it.weight) > 0 ? Number(it.weight) : 1; });
+      return { name: g.name, items: items, value: v };
+    }).filter(function (g) { return g.value > 0; }).sort(function (a, b) { return b.value - a.value; });
+    var html = [];
+    var showLabels = m.id === "wp" && !narrow;
+    squarify(groups, 0, 0, W - 2, H - 2).forEach(function (gr, gi) {
+      var g = gr.item;
+      html.push('<div class="grp" style="left:' + gr.x + "px;top:" + gr.y + "px;width:" + gr.w + "px;height:" + gr.h + 'px">');
+      html.push('<div class="grp-label">' + esc(g.name) + "</div>");
+      var cells = g.items.map(function (it) { return { it: it, value: Number(it.weight) > 0 ? Number(it.weight) : 1 }; });
+      squarify(cells, 0, 0, gr.w - 2, gr.h - 2).forEach(function (c) {
+        var it = c.item.it;
+        var key = m.id + "::" + it.id;
+        var lbl = showLabels && c.w > 58 && c.h > 18 ? '<span class="lbl">' + esc(it.name.replace(/^WP-/, "")) + "</span>" : "";
+        html.push('<div class="cell' + (state.selected === key ? " sel" : "") + '" data-k="' + esc(key) + '" data-s="' + stat(it.status) + '" data-r="' + (it.risk ? 1 : 0) +
+          '" style="left:' + c.x + "px;top:" + c.y + "px;width:" + c.w + "px;height:" + c.h + 'px">' + lbl + "</div>");
+      });
+      html.push("</div>");
+    });
+    el.innerHTML = html.join("");
+  }
+
+  function findItem(key) {
+    var p = String(key).split("::"); var m = state.maps[p[0]];
+    if (!m) return null;
+    for (var i = 0; i < m.groups.length; i++) {
+      var items = m.groups[i].items || [];
+      for (var j = 0; j < items.length; j++) if (items[j].id === p[1]) return { map: m, group: m.groups[i].name, item: items[j] };
+    }
+    return null;
+  }
+
+  // ---------- detail + tooltip ----------
+  function showDetail(key) {
+    var f = findItem(key); var d = $("detail");
+    if (!f) { d.hidden = true; return; }
+    state.selected = key;
+    var it = f.item, s = stat(it.status);
+    var rows = [["Bereich", f.map.title + " · " + f.group], ["Status", '<span class="pill" data-s="' + s + '">' + STATUS_DE[s] + "</span>" + (it.risk ? " &nbsp;★ hohes Risiko" : "")]];
+    if (it.ms) rows.push(["Meilenstein", esc(it.ms)]);
+    if (it.owner) rows.push(["Agent", esc(it.owner)]);
+    if (it.deps) rows.push(["Abhängig von", esc(it.deps)]);
+    if (it.accept) rows.push(["Abnahme", esc(it.accept)]);
+    if (it.note) rows.push(["Notiz", esc(it.note)]);
+    d.setAttribute("data-s", s);
+    d.innerHTML = '<div class="detail-top"><div><div class="eyebrow">' + esc(it.id) + "</div><h3>" + esc(it.title || it.name) +
+      '</h3></div><button class="x" type="button" id="close">Schließen</button></div><dl>' +
+      rows.map(function (r) { return "<dt>" + r[0] + "</dt><dd>" + (r[0] === "Bereich" ? esc(r[1]) : r[1]) + "</dd>"; }).join("") + "</dl>";
+    d.hidden = false;
+    var prev = document.querySelectorAll(".cell.sel"); for (var i = 0; i < prev.length; i++) prev[i].classList.remove("sel");
+    var cur = document.querySelector('.cell[data-k="' + (window.CSS && CSS.escape ? CSS.escape(key) : key) + '"]');
+    if (cur) cur.classList.add("sel");
+  }
+  function hideDetail() { state.selected = null; $("detail").hidden = true; var p = document.querySelectorAll(".cell.sel"); for (var i = 0; i < p.length; i++) p[i].classList.remove("sel"); }
+
+  var tip = $("tip");
+  document.addEventListener("mousemove", function (e) {
+    var c = e.target.closest ? e.target.closest(".cell") : null;
+    if (!c) { tip.hidden = true; return; }
+    var f = findItem(c.getAttribute("data-k"));
+    if (!f) { tip.hidden = true; return; }
+    tip.innerHTML = "<b>" + esc(f.item.id) + "</b>" + (f.item.title && f.item.title !== f.item.id ? "<br>" + esc(f.item.title) : "") +
+      '<br><span style="color:var(--muted)">' + esc(f.group) + " · " + STATUS_DE[stat(f.item.status)] + (f.item.risk ? " · ★" : "") + "</span>";
+    tip.hidden = false;
+    var x = e.clientX + 14, y = e.clientY + 14, r = tip.getBoundingClientRect();
+    if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - 10;
+    if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - 10;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+  document.addEventListener("click", function (e) {
+    var c = e.target.closest ? e.target.closest(".cell") : null;
+    if (c) { showDetail(c.getAttribute("data-k")); return; }
+    if (e.target.id === "close") { hideDetail(); return; }
+    var b = e.target.closest ? e.target.closest("[data-jump]") : null;
+    if (b) { var t = $("map-" + b.getAttribute("data-jump")); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
+    var tr = e.target.closest ? e.target.closest("tr[data-k]") : null;
+    if (tr) { showDetail(tr.getAttribute("data-k")); }
+  });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") hideDetail(); });
+
+  // ---------- list ----------
+  function renderList() {
+    var q = $("q").value.trim().toLowerCase(), fm = $("fmap").value, fs = $("fstatus").value, fr = $("frisk").value;
+    var rows = [];
+    mapList().forEach(function (m) {
+      if (fm && m.id !== fm) return;
+      m.groups.forEach(function (g) { (g.items || []).forEach(function (it) {
+        if (fs && stat(it.status) !== fs) return;
+        if (fr && !it.risk) return;
+        if (q && (it.id + " " + (it.title || "") + " " + g.name + " " + (it.owner || "")).toLowerCase().indexOf(q) < 0) return;
+        rows.push({ m: m, g: g, it: it });
+      }); });
+    });
+    var total = 0; mapList().forEach(function (m) { total += stats(m).n; });
+    $("count").textContent = rows.length + " von " + total;
+    $("rows").innerHTML = rows.map(function (r) {
+      var s = stat(r.it.status);
+      return '<tr data-k="' + esc(r.m.id + "::" + r.it.id) + '"><td class="id">' + esc(r.it.id) + (r.it.risk ? " ★" : "") + "</td><td>" + esc(r.m.title) +
+        "</td><td>" + esc(r.g.name) + "</td><td>" + esc(r.it.title && r.it.title !== r.it.id ? r.it.title : "") + '</td><td class="mono">' + esc(r.it.ms || "") +
+        '</td><td><span class="pill" data-s="' + s + '">' + STATUS_DE[s] + "</span></td></tr>";
+    }).join("");
+    var sel = $("fmap"), cur = sel.value;
+    sel.innerHTML = '<option value="">Alle Bereiche</option>' + mapList().map(function (m) { return '<option value="' + esc(m.id) + '">' + esc(m.title) + "</option>"; }).join("");
+    sel.value = cur;
+  }
+  ["q", "fmap", "fstatus", "frisk"].forEach(function (id) { $(id).addEventListener("input", renderList); });
+
+  function renderAll() { renderHeader(); renderMaps(); renderList(); if (state.selected) showDetail(state.selected); }
+  var rt = null;
+  if (window.ResizeObserver) new ResizeObserver(function () { clearTimeout(rt); rt = setTimeout(layoutAll, 80); }).observe($("maps"));
+  else window.addEventListener("resize", function () { clearTimeout(rt); rt = setTimeout(layoutAll, 80); });
+
+  // ---------- data ----------
+  function noDb(msg) {
+    $("updated").textContent = "";
+    $("maps").innerHTML = '<div class="empty" style="grid-column:1/-1"><strong>Keine Verbindung zur Datenbank</strong>' + esc(msg) + "</div>";
+  }
+  function start() {
+    if (!window.claude || typeof window.claude.use !== "function") { noDb("Diese Seite zeigt den Projektstand nur in claude.ai mit Anmeldung."); return; }
+    window.claude.use("db").then(function (db) {
+      if (!db) { noDb("Melde dich bei claude.ai an, um den Projektstand zu sehen."); return; }
+      db.collection("maps").onSnapshot(function (snap) {
+        var next = {};
+        snap.docs.forEach(function (d) { if (d.exists) { var v = d.data(); if (v && Array.isArray(v.groups)) next[d.id] = Object.assign({ id: d.id }, v); } });
+        state.maps = next; renderAll();
+      }, function (e) { noDb("Die Daten konnten nicht geladen werden (" + e.code + "). Lade die Seite neu."); });
+      db.doc("meta/summary").onSnapshot(function (d) {
+        state.meta = d.exists ? d.data() : null; renderHeader();
+      }, function () {});
+    }, function () { noDb("Die Datenbank ist in dieser Ansicht nicht verfügbar."); });
+  }
+  start();
+})();
+</script>

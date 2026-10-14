@@ -1,0 +1,778 @@
+{
+ "id": "metal",
+ "title": "Metal-API",
+ "unit": "Funktionen",
+ "order": 3,
+ "note": "Gelb = im Objektmodell/NullBackend modelliert und validiert, noch ohne Vulkan. Grün erst, wenn auf echter GPU getestet.",
+ "groups": [
+  {
+   "name": "Gerät & Queues",
+   "items": [
+    {
+     "id": "MTLDevice",
+     "name": "MTLDevice",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Feature-Sets/Familien",
+     "name": "Feature-Sets/Familien",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLCommandQueue",
+     "name": "MTLCommandQueue",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLCommandBuffer",
+     "name": "MTLCommandBuffer",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Completion-Handler",
+     "name": "Completion-Handler",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Command-Buffer-Status/Fehler",
+     "name": "Command-Buffer-Status/Fehler",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLCaptureManager",
+     "name": "MTLCaptureManager",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Device-Auswahl (2 GPUs)",
+     "name": "Device-Auswahl (2 GPUs)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Ressourcen",
+   "items": [
+    {
+     "id": "MTLBuffer",
+     "name": "MTLBuffer",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Storage Shared",
+     "name": "Storage Shared",
+     "status": "wip",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Storage Private",
+     "name": "Storage Private",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Storage Managed",
+     "name": "Storage Managed",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Memoryless",
+     "name": "Memoryless",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLTexture 2D",
+     "name": "MTLTexture 2D",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Texture 3D",
+     "name": "Texture 3D",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Texture Cube/Array",
+     "name": "Texture Cube/Array",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Texture-Views",
+     "name": "Texture-Views",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Swizzle",
+     "name": "Swizzle",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Pixelformate unkomprimiert",
+     "name": "Pixelformate unkomprimiert",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "BC-Formate",
+     "name": "BC-Formate",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "ASTC (Transkodierung)",
+     "name": "ASTC (Transkodierung)",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Depth/Stencil",
+     "name": "Depth/Stencil",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MSAA + Resolve",
+     "name": "MSAA + Resolve",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Mipmaps",
+     "name": "Mipmaps",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLSamplerState",
+     "name": "MTLSamplerState",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Constexpr Sampler",
+     "name": "Constexpr Sampler",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "IOSurface",
+     "name": "IOSurface",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Purgeable State",
+     "name": "Purgeable State",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Heaps & Residency",
+   "items": [
+    {
+     "id": "MTLHeap",
+     "name": "MTLHeap",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Aliasing",
+     "name": "Aliasing",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "makeAliasable",
+     "name": "makeAliasable",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Residency-Sets",
+     "name": "Residency-Sets",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "useResource/useHeap",
+     "name": "useResource/useHeap",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Hazard-Tracking automatisch",
+     "name": "Hazard-Tracking automatisch",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Hazard-Tracking manuell",
+     "name": "Hazard-Tracking manuell",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Render",
+   "items": [
+    {
+     "id": "MTLRenderPipelineState",
+     "name": "MTLRenderPipelineState",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Render Pass Load/Store",
+     "name": "Render Pass Load/Store",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Vertex-Deskriptoren",
+     "name": "Vertex-Deskriptoren",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Draw/DrawIndexed",
+     "name": "Draw/DrawIndexed",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Instancing",
+     "name": "Instancing",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Indirect Draw",
+     "name": "Indirect Draw",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Blending",
+     "name": "Blending",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Depth/Stencil-State",
+     "name": "Depth/Stencil-State",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Viewport/Scissor",
+     "name": "Viewport/Scissor",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Culling/Winding",
+     "name": "Culling/Winding",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Tessellation",
+     "name": "Tessellation",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Layered Rendering",
+     "name": "Layered Rendering",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Programmierbares Blending",
+     "name": "Programmierbares Blending",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Raster Order Groups",
+     "name": "Raster Order Groups",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Tile-Shader",
+     "name": "Tile-Shader",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Imageblocks",
+     "name": "Imageblocks",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Vertex Amplification",
+     "name": "Vertex Amplification",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Compute",
+   "items": [
+    {
+     "id": "MTLComputePipelineState",
+     "name": "MTLComputePipelineState",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "dispatchThreads",
+     "name": "dispatchThreads",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "dispatchThreadgroups",
+     "name": "dispatchThreadgroups",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Ungleichmäßige Threadgroups",
+     "name": "Ungleichmäßige Threadgroups",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Threadgroup-Memory",
+     "name": "Threadgroup-Memory",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Indirect Dispatch",
+     "name": "Indirect Dispatch",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Concurrent Dispatch",
+     "name": "Concurrent Dispatch",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Blit",
+   "items": [
+    {
+     "id": "copyBuffer",
+     "name": "copyBuffer",
+     "status": "wip",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "copyTexture",
+     "name": "copyTexture",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Buffer↔Texture",
+     "name": "Buffer↔Texture",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "generateMipmaps",
+     "name": "generateMipmaps",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "fillBuffer",
+     "name": "fillBuffer",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "synchronizeResource",
+     "name": "synchronizeResource",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "optimizeContents",
+     "name": "optimizeContents",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Argument Buffers",
+   "items": [
+    {
+     "id": "Argument Buffers Tier 1",
+     "name": "Argument Buffers Tier 1",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Argument Buffers Tier 2",
+     "name": "Argument Buffers Tier 2",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "gpuAddress (BDA)",
+     "name": "gpuAddress (BDA)",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "gpuResourceID",
+     "name": "gpuResourceID",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLArgumentEncoder",
+     "name": "MTLArgumentEncoder",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Bindless-Heaps",
+     "name": "Bindless-Heaps",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Synchronisation",
+   "items": [
+    {
+     "id": "MTLFence",
+     "name": "MTLFence",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLEvent",
+     "name": "MTLEvent",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTLSharedEvent",
+     "name": "MTLSharedEvent",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Shared-Event-Listener",
+     "name": "Shared-Event-Listener",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Barrieren im Encoder",
+     "name": "Barrieren im Encoder",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Timeline-Semaphoren-Abbildung",
+     "name": "Timeline-Semaphoren-Abbildung",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Präsentation",
+   "items": [
+    {
+     "id": "CAMetalLayer",
+     "name": "CAMetalLayer",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Drawables",
+     "name": "Drawables",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "presentDrawable",
+     "name": "presentDrawable",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Frame-Pacing",
+     "name": "Frame-Pacing",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "PRIME auf Iris-Panel",
+     "name": "PRIME auf Iris-Panel",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "KMS-Direktmodus",
+     "name": "KMS-Direktmodus",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "EDR/HDR",
+     "name": "EDR/HDR",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Erweitert",
+   "items": [
+    {
+     "id": "Indirect Command Buffers",
+     "name": "Indirect Command Buffers",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Mesh-Shader",
+     "name": "Mesh-Shader",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Object-Shader",
+     "name": "Object-Shader",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Ray Tracing Accel Structures",
+     "name": "Ray Tracing Accel Structures",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Intersection-Funktionen",
+     "name": "Intersection-Funktionen",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Visible Function Tables",
+     "name": "Visible Function Tables",
+     "status": "open",
+     "risk": true,
+     "weight": 1
+    },
+    {
+     "id": "Dynamic Libraries",
+     "name": "Dynamic Libraries",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Binary Archives",
+     "name": "Binary Archives",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Function Constants",
+     "name": "Function Constants",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Zähler/Zeitstempel",
+     "name": "Zähler/Zeitstempel",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MetalFX Upscaling",
+     "name": "MetalFX Upscaling",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  },
+  {
+   "name": "Metal 4",
+   "items": [
+    {
+     "id": "MTL4CommandAllocator",
+     "name": "MTL4CommandAllocator",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTL4ArgumentTable",
+     "name": "MTL4ArgumentTable",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTL4 Barrieren",
+     "name": "MTL4 Barrieren",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "MTL4Compiler",
+     "name": "MTL4Compiler",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Tensor-Ops",
+     "name": "Tensor-Ops",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    },
+    {
+     "id": "Kooperative Matrix",
+     "name": "Kooperative Matrix",
+     "status": "open",
+     "risk": false,
+     "weight": 1
+    }
+   ]
+  }
+ ]
+}
